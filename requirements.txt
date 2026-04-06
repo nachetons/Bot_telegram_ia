@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+requests
+python-dotenv
+duckduckgo-search>=6.2.4
+bs4
+trafilatura
+ftfy
