@@ -1,0 +1,12 @@
+services:
+  ai-agent:
+    build: .
+    container_name: ai-agent
+    ports:
+      - "18000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+      - /media/casaos/Library/PYTHON/Agent:/repo
+    restart: always
