@@ -268,6 +268,11 @@ async def webhook(req: Request):
             send_message_with_buttons(chat_id, "Elige idioma:", buttons)
             return {"ok": True}
 
+        # --- LÓGICA DE TEXTO (ERRORES / MENSAJES) ---
+        if result.get("type") == "text":
+            send_message(chat_id, result.get("text", ""))
+            return {"ok": True}
+
         # --- LÓGICA DE MENÚ ---
         if result.get("type") == "menu":
             send_message_with_buttons(

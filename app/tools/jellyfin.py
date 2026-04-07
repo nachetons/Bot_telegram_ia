@@ -191,6 +191,9 @@ class JellyfinTool:
         data = self.get_item_info(item_id)
 
         media = data.get("MediaSources", [])
+        if not media:
+            return None
+
         streams = media[0].get("MediaStreams", [])
 
         for s in streams:
@@ -198,7 +201,7 @@ class JellyfinTool:
                 if (s.get("Language") or "").lower().startswith(lang_code):
                     return s.get("Index")
 
-        return 0
+        return None
     
 
     # -----------------------
