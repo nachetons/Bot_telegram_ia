@@ -1,10 +1,36 @@
 import requests
 import logging
+from rapidfuzz import fuzz
+import unicodedata
+import re
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jellyfin")
 
 
+# -----------------------
+# NORMALIZE
+# -----------------------
+def normalize(text: str) -> str:
+    text = (text or "").lower()
+
+    # quitar acentos
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+
+    # quitar símbolos
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+
+    # espacios limpios
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
+
+
+# -----------------------
+# JELLYFIN TOOL
+# -----------------------
 class JellyfinTool:
     name = "jellyfin"
 
@@ -13,13 +39,16 @@ class JellyfinTool:
         self.api_key = api_key.strip()
         self.user_id = user_id.strip()
 
+    # -----------------------
+    # HEADERS
+    # -----------------------
     def _headers(self):
         return {
             "X-Emby-Token": self.api_key
         }
 
     # -----------------------
-    # MOVIES
+    # GET MOVIES
     # -----------------------
     def get_all_movies(self):
         url = f"{self.base_url}/Users/{self.user_id}/Items"
@@ -43,23 +72,11 @@ class JellyfinTool:
         logger.info(f"🎬 TOTAL MOVIES: {len(items)}")
 
         return items
-
-    # -----------------------
-    # CLEAN QUERY
-    # -----------------------
-    def clean_query(self, query: str):
-        q = query.lower()
-
-        stopwords = [
-            "ponme", "pon", "reproduce", "reproducir",
-            "quiero ver", "ver", "la", "el", "los", "las"
-        ]
-
-        for w in stopwords:
-            q = q.replace(w, "")
-
-        return q.strip()
     
+
+    # -----------------------
+    # GET SERIES
+    # -----------------------
     def get_all_series(self):
         url = f"{self.base_url}/Users/{self.user_id}/Items"
 
@@ -70,26 +87,18 @@ class JellyfinTool:
         }
 
         r = requests.get(url, headers=self._headers(), params=params)
-        data = r.json()
+
+        try:
+            data = r.json()
+        except Exception:
+            return []
 
         return data.get("Items", [])
 
 
-    def get_all_tv(self):
-        url = f"{self.base_url}/Users/{self.user_id}/Items"
-
-        params = {
-            "IncludeItemTypes": "Episode",
-            "Recursive": "true",
-            "Limit": 200
-        }
-
-        r = requests.get(url, headers=self._headers(), params=params)
-        data = r.json()
-
-        return data.get("Items", [])
-    
-
+    # -----------------------
+    # GET LIBRARY (FIX)
+    # -----------------------
     def get_library(self, limit=20):
         movies = self.get_all_movies()
         series = self.get_all_series()
@@ -116,30 +125,120 @@ class JellyfinTool:
         }
 
     # -----------------------
-    # SEARCH
+    # CLEAN QUERY (FIXED)
+    # -----------------------
+    def clean_query(self, query: str):
+        q = query.lower()
+
+        stopwords = [
+            "quiero ver",
+            "ponme",
+            "pon",
+            "reproduce",
+            "reproducir",
+            "ver",
+            "peli de",
+            "pelicula de",
+            "la peli de",
+            "la",
+            "el",
+            "los",
+            "las"
+        ]
+
+        for w in stopwords:
+            q = q.replace(w, " ")
+
+        q = re.sub(r"\s+", " ", q).strip()
+
+        return q
+
+    # -----------------------
+    # SEARCH MOVIE (FIXED CORE)
     # -----------------------
     def search_movie(self, query: str):
         items = self.get_all_movies()
 
-        q = self.clean_query(query)
+        q = normalize(self.clean_query(query))
 
-        results = []
+        best_matches = []
 
         for m in items:
-            name = (m.get("Name") or "").lower()
-            original = (m.get("OriginalTitle") or "").lower()
+            name = normalize(m.get("Name"))
+            original = normalize(m.get("OriginalTitle"))
 
-            if q in name or q in original:
-                results.append(m)
+            score = max(
+                fuzz.token_set_ratio(q, name),
+                fuzz.token_set_ratio(q, original)
+            )
 
-        logger.info(f"🔎 QUERY: {query}")
-        logger.info(f"🧹 CLEAN: {q}")
-        logger.info(f"🎯 MATCHED: {[m.get('Name') for m in results]}")
+            m["_score"] = score
+            best_matches.append(m)
 
-        return results
+        # ordenar por score
+        best_matches.sort(key=lambda x: x["_score"], reverse=True)
+
+        # DEBUG IMPORTANTE
+        logger.info(f"🔎 QUERY FINAL: {q}")
+        logger.info("📊 TOP MATCHES:")
+
+        for m in best_matches[:10]:
+            logger.info(f"🎬 {m.get('Name')} -> {m['_score']}")
+
+        best = best_matches[0] if best_matches else None
+        best_score = best["_score"] if best else 0
+
+        # -----------------------
+        # THRESHOLDS
+        # -----------------------
+        if not best or best_score < 55:
+            return {
+                "type": "uncertain",
+                "message": "No estoy seguro de la película",
+                "results": best_matches[:5]
+            }
+
+        if best_score < 75:
+            return {
+                "type": "suggestion",
+                "message": f"¿Te refieres a '{best.get('Name')}'?",
+                "result": best,
+                "score": best_score
+            }
+
+        return {
+            "type": "match",
+            "result": best,
+            "score": best_score
+        }
 
     # -----------------------
-    # ITEM INFO (IMPORTANT)
+    # RUN (FIXED BUG HERE)
+    # -----------------------
+    def run(self, query: str):
+        result = self.search_movie(query)
+
+        # no match claro
+        if result.get("type") == "uncertain":
+            return {"error": "No se encontraron películas"}
+
+        movie = result.get("result")
+
+        if not movie:
+            return {"error": "No se encontraron películas"}
+
+        item_id = movie["Id"]
+
+        return {
+            "type": "video",
+            "title": movie.get("Name"),
+            "image": self.get_image_url(movie),
+            "item_id": item_id,
+            "score": result.get("score")
+        }
+
+    # -----------------------
+    # ITEM INFO
     # -----------------------
     def get_item_info(self, item_id):
         url = f"{self.base_url}/Users/{self.user_id}/Items/{item_id}"
@@ -170,21 +269,24 @@ class JellyfinTool:
         return audio_tracks
 
     # -----------------------
+    # IMAGE
+    # -----------------------
+    def get_image_url(self, item):
+        return f"{self.base_url}/Items/{item['Id']}/Images/Primary?api_key={self.api_key}"
+
+    # -----------------------
     # STREAM URL
     # -----------------------
     def get_stream_url(self, item_id, audio_index=0):
-        # Añadimos MediaSourceId para evitar el error 400
         return (
             f"{self.base_url}/Videos/{item_id}/master.m3u8"
             f"?api_key={self.api_key}"
-            f"&MediaSourceId={item_id}"  # <--- ESTO ES LO QUE FALTA
+            f"&MediaSourceId={item_id}"
             f"&AudioStreamIndex={audio_index}"
             f"&VideoCodec=h264"
             f"&AudioCodec=aac"
             f"&AllowVideoStreamCopy=true"
             f"&AllowAudioStreamCopy=false"
-            f"&BreakOnNonKeyFrames=true"
-            f"&Tag=bot_stream_v3"
         )
     
     def get_audio_stream_by_language(self, item_id, lang_code="spa"):
@@ -214,24 +316,24 @@ class JellyfinTool:
     # MAIN
     # -----------------------
     def run(self, query: str):
-        movies = self.search_movie(query)
+        result = self.search_movie(query)
 
-        if not movies:
+        if result.get("type") == "uncertain":
             return {"error": "No se encontraron películas"}
 
-        movie = movies[0]
+        movie = result.get("result")
+
+        if not movie:
+            return {"error": "No se encontraron películas"}
+
         item_id = movie["Id"]
-
-        audio_tracks = self.get_audio_tracks(item_id)
-
-        logger.info(f"🎧 AUDIO TRACKS: {audio_tracks}")
 
         return {
             "type": "video",
             "title": movie.get("Name"),
             "image": self.get_image_url(movie),
             "item_id": item_id,
-            "audio_tracks": audio_tracks
+            "score": result.get("score")
         }
     
 

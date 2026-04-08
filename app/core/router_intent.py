@@ -1,5 +1,6 @@
 from app.services.llm_client import call_llm
 from app.services.llm_client_cloud import call_llm_cloud
+import json
 
 
 ALLOWED_INTENTS = ["movies", "images", "weather", "wiki", "search"]
@@ -64,6 +65,16 @@ def detect_intent_fast(query: str):
     # -----------------------
     if q.startswith("/series"):
         return "series"
+    
+
+        # preguntas tipo wiki
+    if any(x in q for x in ["quien es", "qué es", "who is", "what is"]):
+        return "wiki"
+
+    # intención clara de ver contenido
+    if any(x in q for x in ["ver", "pelicula", "movie", "reproduce", "pon"]):
+        return "movies"
+
 
     return None
 
@@ -144,17 +155,77 @@ Output: "iron man 2"
     return call_llm_cloud(messages).strip().lower()
 
 
+
+def parse_query(query: str):
+    messages = [
+        {
+            "role": "system",
+            "content": """
+Eres un sistema de análisis de intención.
+
+Devuelve SOLO JSON válido.
+
+Formato:
+{
+  "intent": "movies | images | weather | wiki | search",
+  "title": "string o null"
+}
+
+Reglas:
+- intent = movies si el usuario quiere ver películas
+- extrae SOLO el título de la película
+- elimina frases como:
+  "quiero ver", "pon", "reproduce", "la peli de", "pelicula de"
+- si no hay película, title = null
+- NO expliques nada
+"""
+        },
+        {"role": "user", "content": query}
+    ]
+
+    response = call_llm_cloud(messages)
+
+    try:
+        return json.loads(response)
+    except Exception:
+        return {
+            "intent": None,
+            "title": None
+        }
+    
+
+
+def get_movie_title(query: str):
+    parsed = parse_query(query)
+
+    title = parsed.get("title")
+
+    if title:
+        return title.strip().lower()
+
+    return query
+
 # -----------------------
 # 4. MAIN ROUTER (HÍBRIDO)
 # -----------------------
 def detect_intent(query: str):
 
-    # 1️⃣ comandos (máxima prioridad)
+    # 1️⃣ comandos
     intent = detect_intent_fast(query)
     if intent:
         return intent
 
-    # 2️⃣ LLM local
+    # 2️⃣ NUEVO: LLM parser estructurado
+    try:
+        parsed = parse_query(query)
+
+        if parsed.get("intent"):
+            return parsed["intent"]
+
+    except Exception as e:
+        print("⚠️ PARSE QUERY FAILED:", e)
+
+    # 3️⃣ fallback LLM clásico
     try:
         intent = detect_intent_llm(query)
         if intent:
@@ -162,7 +233,6 @@ def detect_intent(query: str):
     except Exception as e:
         print("⚠️ LOCAL LLM FAILED:", e)
 
-    # 3️⃣ LLM cloud
     try:
         intent = detect_intent_llm_cloud(query)
         if intent:
@@ -170,5 +240,4 @@ def detect_intent(query: str):
     except Exception as e:
         print("⚠️ CLOUD LLM FAILED:", e)
 
-    # 4️⃣ fallback final
     return "search"

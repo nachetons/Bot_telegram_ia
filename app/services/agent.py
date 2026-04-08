@@ -58,13 +58,34 @@ def agent(query: str):
 
         clean_query = extract_movie_title(query)
 
+        # 🔒 PROTECCIÓN: LLM falló o no entendió
+        if not clean_query:
+            # intentar como wiki (por si era una pregunta tipo "quien es...")
+            context, sources = wikipedia(query)
+            if context:
+                return context, sources
+
+            return {
+                "error": "No he entendido qué película buscas."
+            }, ["jellyfin_tool"]
+
+        # 🎬 Buscar en Jellyfin
         result = jellyfin.run(clean_query)
 
+        # 🔒 Error interno de Jellyfin
         if isinstance(result, dict) and "error" in result:
             return result, ["jellyfin_tool"]
 
+        # 🔍 No hay resultados → fallback inteligente
         if not result:
-            return {"error": "No he encontrado películas."}, ["jellyfin_tool"]
+            context, sources = wikipedia(query)
+
+            if context:
+                return context, sources
+
+            return {
+                "error": f"No he encontrado la película: {clean_query}"
+            }, ["jellyfin_tool"]
 
         return result, ["jellyfin_tool"]
     

@@ -1,19 +1,20 @@
 from app.services.llm_client import call_llm
 from app.services.llm_client_cloud import call_llm_cloud
+import logging
 
 
 def smart_llm(messages):
     try:
-        print("🟡 LOCAL LLM")
+        logging.info("🟡 LOCAL LLM")
         return call_llm(messages)
     except Exception as e:
-        print("🔴 LOCAL FAIL:", e)
+        logging.error("🔴 LOCAL FAIL: %s", e)
 
     try:
-        print("🟢 CLOUD LLM")
+        logging.info("🟢 CLOUD LLM")
         return call_llm_cloud(messages)
     except Exception as e:
-        print("🔴 CLOUD FAIL:", e)
+        logging.error("🔴 CLOUD FAIL: %s", e)
 
-    print("💀 NO LLM AVAILABLE")
+    logging.error("💀 NO LLM AVAILABLE")
     return "No puedo responder ahora mismo"
