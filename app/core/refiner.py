@@ -2,8 +2,16 @@ def refine_context(context: str):
     if not context:
         return ""
 
-    # limpia exceso de espacios
-    context = " ".join(context.split())
+    lines = [line.strip() for line in context.splitlines()]
+    compact_lines = []
 
-    # corta a tamaño seguro para LLM + Telegram
-    return context[:2500]
+    for line in lines:
+        if not line:
+            if compact_lines and compact_lines[-1] != "":
+                compact_lines.append("")
+            continue
+
+        compact_lines.append(" ".join(line.split()))
+
+    refined = "\n".join(compact_lines).strip()
+    return refined[:3000]

@@ -7,6 +7,12 @@ from app.services.agent import agent
 from app.services.telegram_client import (
     send_message,
     send_photo,
+    send_images,
+    send_chat_action,
+    send_temp_message,
+    edit_message,
+    edit_message_with_buttons,
+    delete_message,
     send_message_with_buttons,
     answer_callback_query
 )
@@ -18,38 +24,231 @@ router = APIRouter()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("bot")
 
+pending_followups = {}
+pending_followups_lock = threading.Lock()
+
+
+def set_pending_followup(chat_id, intent):
+    with pending_followups_lock:
+        pending_followups[chat_id] = intent
+
+
+def pop_pending_followup(chat_id):
+    with pending_followups_lock:
+        return pending_followups.pop(chat_id, None)
+
+
+def clear_pending_followup(chat_id):
+    with pending_followups_lock:
+        pending_followups.pop(chat_id, None)
+
+
+def run_direct_intent(intent, query):
+    if intent == "movies":
+        return jellyfin.run(query), ["jellyfin_tool"]
+
+    if intent == "images":
+        from app.tools.images import get_images
+
+        images = get_images(query)
+        return {"type": "images", "images": images}, ["images_tool"]
+
+    if intent == "wiki":
+        from app.tools.wiki import wikipedia
+
+        result, sources = wikipedia(query)
+        return result, sources
+
+    if intent == "weather":
+        from app.tools.weather import get_weather
+
+        result, sources = get_weather(query)
+        return result, sources
+
+    return agent(query)
+
+
+def _format_image_caption(image_result):
+    if not isinstance(image_result, dict):
+        return None
+
+    parts = []
+    title = image_result.get("title")
+    domain = image_result.get("source_domain")
+
+    if title:
+        parts.append(title[:180])
+
+    if domain:
+        parts.append(f"Fuente: {domain}")
+
+    return "\n".join(parts) if parts else None
+
+
+def _build_image_buttons(images):
+    buttons = []
+
+    for index, image in enumerate(images[:3], start=1):
+        if not isinstance(image, dict):
+            continue
+
+        source_url = image.get("source_url")
+        if not source_url:
+            continue
+
+        domain = image.get("source_domain") or "fuente"
+        buttons.append([
+            {
+                "text": f"🔗 Fuente {index} ({domain})",
+                "url": source_url
+            }
+        ])
+
+    return buttons
+
+
+def _typing_indicator(chat_id, stop_event):
+    while not stop_event.is_set():
+        send_chat_action(chat_id, "typing")
+        stop_event.wait(4)
+
+
+def _placeholder_indicator(chat_id, message_id, stop_event):
+    frames = [
+        "Buscando",
+        "Buscando.",
+        "Buscando..",
+        "Buscando..."
+    ]
+    index = 0
+
+    while not stop_event.is_set() and message_id:
+        edit_message(chat_id, message_id, frames[index])
+        index = (index + 1) % len(frames)
+        stop_event.wait(0.8)
+
 
 # =======================
 # PROCESS MAIN MESSAGE
 # =======================
-def process(text, chat_id):
+def _finalize_text_response(chat_id, result, placeholder_message_id=None, stop_placeholder=None):
+    message_text = str(result)
+
+    if stop_placeholder:
+        stop_placeholder.set()
+
+    if placeholder_message_id:
+        edit_message(chat_id, placeholder_message_id, message_text)
+    else:
+        send_message(chat_id, message_text)
+
+
+def _clear_placeholder(chat_id, placeholder_message_id=None, stop_placeholder=None):
+    if stop_placeholder:
+        stop_placeholder.set()
+
+    if placeholder_message_id:
+        delete_message(chat_id, placeholder_message_id)
+
+
+def process(text, chat_id, placeholder_message_id=None):
+    stop_typing = threading.Event()
+    stop_placeholder = threading.Event()
+    typing_thread = threading.Thread(
+        target=_typing_indicator,
+        args=(chat_id, stop_typing),
+        daemon=True
+    )
+    placeholder_thread = None
+
     try:
+        typing_thread.start()
+        if placeholder_message_id:
+            placeholder_thread = threading.Thread(
+                target=_placeholder_indicator,
+                args=(chat_id, placeholder_message_id, stop_placeholder),
+                daemon=True
+            )
+            placeholder_thread.start()
         logger.info(f"📩 INPUT: {text}")
 
         result = None
         sources = []
+        text = (text or "").strip()
+        pending_intent = None
+
+        if text.startswith("/"):
+            clear_pending_followup(chat_id)
+        else:
+            pending_intent = pop_pending_followup(chat_id)
+
+        if pending_intent:
+            logger.info(f"↪️ USING PENDING INTENT: {pending_intent}")
+            result, sources = run_direct_intent(pending_intent, text)
 
         # -----------------------
         # 🎯 COMANDOS DIRECTOS (SIN IA)
         # -----------------------
-        if text.startswith("/video"):
+        elif text.startswith("/video"):
             query = text.replace("/video", "").strip()
-            result = jellyfin.run(query)
+
+            if not query:
+                set_pending_followup(chat_id, "movies")
+                _finalize_text_response(
+                    chat_id,
+                    "¿Qué película quieres ver?",
+                    placeholder_message_id,
+                    stop_placeholder
+                )
+                return
+
+            result, sources = run_direct_intent("movies", query)
 
         elif text.startswith("/img") or text.startswith("/image"):
-            from app.tools.images import get_images
             query = text.replace("/img", "").replace("/image", "").strip()
-            images = get_images(query)
-            result = {"type": "images", "images": images}
+
+            if not query:
+                set_pending_followup(chat_id, "images")
+                _finalize_text_response(
+                    chat_id,
+                    "¿Qué imagen quieres buscar?",
+                    placeholder_message_id,
+                    stop_placeholder
+                )
+                return
+
+            result, sources = run_direct_intent("images", query)
 
         elif text.startswith("/wiki"):
-            from app.tools.wiki import wikipedia
             query = text.replace("/wiki", "").strip()
-            result, _ = wikipedia(query)
+
+            if not query:
+                set_pending_followup(chat_id, "wiki")
+                _finalize_text_response(
+                    chat_id,
+                    "¿Qué quieres buscar en la wiki?",
+                    placeholder_message_id,
+                    stop_placeholder
+                )
+                return
+
+            result, sources = run_direct_intent("wiki", query)
 
         elif text.startswith("/tiempo") or text.startswith("/weather"):
-            from app.tools.weather import get_weather
-            result, _ = get_weather(text)
+            command = "/tiempo" if text.startswith("/tiempo") else "/weather"
+            query = text.replace(command, "", 1).strip()
+
+            if not query:
+                set_pending_followup(chat_id, "weather")
+                _finalize_text_response(
+                    chat_id,
+                    "¿De qué ciudad quieres saber el tiempo?",
+                    placeholder_message_id,
+                    stop_placeholder
+                )
+                return
+
+            result, sources = run_direct_intent("weather", query)
 
         # -----------------------
         # 🤖 MODO IA
@@ -64,7 +263,12 @@ def process(text, chat_id):
         # ERROR MODE
         # -----------------------
         if isinstance(result, dict) and result.get("error"):
-            send_message(chat_id, result["error"])
+            _finalize_text_response(
+                chat_id,
+                result["error"],
+                placeholder_message_id,
+                stop_placeholder
+            )
             return
 
         # -----------------------
@@ -74,11 +278,16 @@ def process(text, chat_id):
             images = result.get("images", [])
 
             if not images:
-                send_message(chat_id, "No encontré imágenes.")
+                _finalize_text_response(
+                    chat_id,
+                    "No encontré imágenes.",
+                    placeholder_message_id,
+                    stop_placeholder
+                )
                 return
 
-            for img in images[:3]:
-                send_photo(chat_id, img)
+            _clear_placeholder(chat_id, placeholder_message_id, stop_placeholder)
+            send_images(chat_id, images[:3])
 
             return
 
@@ -86,6 +295,7 @@ def process(text, chat_id):
         # MENU MODE (LIBRARY / BUTTONS)
         # -----------------------
         if isinstance(result, dict) and result.get("type") == "menu":
+            _clear_placeholder(chat_id, placeholder_message_id, stop_placeholder)
             send_message_with_buttons(
                 chat_id,
                 result.get("text", "Menú"),
@@ -104,6 +314,8 @@ def process(text, chat_id):
             audio_tracks = result.get("audio_tracks", [])
 
             fallback_url = jellyfin.get_stream_url(item_id, 0)
+
+            _clear_placeholder(chat_id, placeholder_message_id, stop_placeholder)
 
             # Carátula
             if image:
@@ -180,11 +392,19 @@ def process(text, chat_id):
         # -----------------------
         # TEXT MODE
         # -----------------------
-        send_message(chat_id, str(result))
+        _finalize_text_response(chat_id, result, placeholder_message_id, stop_placeholder)
 
     except Exception:
         logger.error("❌ ERROR EN PROCESS:\n" + traceback.format_exc())
-        send_message(chat_id, "Ocurrió un error al procesar tu solicitud.")
+        _finalize_text_response(
+            chat_id,
+            "Ocurrió un error al procesar tu solicitud.",
+            placeholder_message_id,
+            stop_placeholder
+        )
+    finally:
+        stop_typing.set()
+        stop_placeholder.set()
 
 
 # =======================
@@ -213,6 +433,7 @@ async def webhook(req: Request):
     elif "callback_query" in data:
         callback = data["callback_query"]
         chat_id = callback["message"]["chat"]["id"]
+        callback_message_id = callback["message"]["message_id"]
         
         # 1. Responder al callback para quitar el relojito
         answer_callback_query(callback["id"])
@@ -270,13 +491,18 @@ async def webhook(req: Request):
 
         # --- LÓGICA DE TEXTO (ERRORES / MENSAJES) ---
         if result.get("type") == "text":
-            send_message(chat_id, result.get("text", ""))
+            edit_message(
+                chat_id,
+                callback_message_id,
+                result.get("text", "")
+            )
             return {"ok": True}
 
         # --- LÓGICA DE MENÚ ---
         if result.get("type") == "menu":
-            send_message_with_buttons(
+            edit_message_with_buttons(
                 chat_id,
+                callback_message_id,
                 result.get("text", "Menú"),
                 result.get("buttons", [])
             )
@@ -296,6 +522,11 @@ async def webhook(req: Request):
     if not text or not chat_id:
         return {"ok": True}
 
-    threading.Thread(target=process, args=(text, chat_id)).start()
+    placeholder_message_id = send_temp_message(chat_id, "Buscando...")
+    send_chat_action(chat_id, "typing")
+    threading.Thread(
+        target=process,
+        args=(text, chat_id, placeholder_message_id)
+    ).start()
 
     return {"ok": True}

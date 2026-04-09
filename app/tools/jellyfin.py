@@ -1,104 +1,92 @@
-import requests
 import logging
-from rapidfuzz import fuzz
-import unicodedata
 import re
+import unicodedata
+from urllib.parse import urlencode
+
+import requests
+from rapidfuzz import fuzz
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jellyfin")
 
+REQUEST_TIMEOUT = 10
+PAGE_SIZE = 200
 
-# -----------------------
-# NORMALIZE
-# -----------------------
+
 def normalize(text: str) -> str:
     text = (text or "").lower()
-
-    # quitar acentos
     text = unicodedata.normalize("NFD", text)
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
-
-    # quitar símbolos
     text = re.sub(r"[^a-z0-9\s]", " ", text)
-
-    # espacios limpios
     text = re.sub(r"\s+", " ", text).strip()
-
     return text
 
 
-# -----------------------
-# JELLYFIN TOOL
-# -----------------------
 class JellyfinTool:
     name = "jellyfin"
 
     def __init__(self, base_url: str, api_key: str, user_id: str):
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key.strip()
-        self.user_id = user_id.strip()
+        self.base_url = (base_url or "").rstrip("/")
+        self.api_key = (api_key or "").strip()
+        self.user_id = (user_id or "").strip()
 
-    # -----------------------
-    # HEADERS
-    # -----------------------
     def _headers(self):
-        return {
-            "X-Emby-Token": self.api_key
-        }
+        return {"X-Emby-Token": self.api_key}
 
-    # -----------------------
-    # GET MOVIES
-    # -----------------------
-    def get_all_movies(self):
-        url = f"{self.base_url}/Users/{self.user_id}/Items"
-
-        params = {
-            "IncludeItemTypes": "Movie",
-            "Recursive": "true",
-            "Limit": 200
-        }
-
-        r = requests.get(url, headers=self._headers(), params=params)
-
-        logger.info(f"STATUS: {r.status_code}")
+    def _request_json(self, path: str, params=None):
+        url = f"{self.base_url}{path}"
 
         try:
-            data = r.json()
-        except Exception:
-            return []
+            response = requests.get(
+                url,
+                headers=self._headers(),
+                params=params,
+                timeout=REQUEST_TIMEOUT,
+            )
+            logger.info("Jellyfin GET %s -> %s", response.url, response.status_code)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as exc:
+            logger.error("Error contacting Jellyfin: %s", exc)
+        except ValueError as exc:
+            logger.error("Invalid JSON from Jellyfin: %s", exc)
 
-        items = data.get("Items", [])
-        logger.info(f"🎬 TOTAL MOVIES: {len(items)}")
+        return {}
 
+    def _get_all_items(self, item_type: str):
+        items = []
+        start_index = 0
+
+        while True:
+            data = self._request_json(
+                f"/Users/{self.user_id}/Items",
+                params={
+                    "IncludeItemTypes": item_type,
+                    "Recursive": "true",
+                    "Limit": PAGE_SIZE,
+                    "StartIndex": start_index,
+                },
+            )
+
+            batch = data.get("Items", [])
+            items.extend(batch)
+
+            total = data.get("TotalRecordCount", len(items))
+            if not batch or len(items) >= total:
+                break
+
+            start_index += len(batch)
+
+        logger.info("Loaded %s %s from Jellyfin", len(items), item_type.lower())
         return items
-    
 
-    # -----------------------
-    # GET SERIES
-    # -----------------------
+    def get_all_movies(self):
+        return self._get_all_items("Movie")
+
     def get_all_series(self):
-        url = f"{self.base_url}/Users/{self.user_id}/Items"
+        return self._get_all_items("Series")
 
-        params = {
-            "IncludeItemTypes": "Series",
-            "Recursive": "true",
-            "Limit": 200
-        }
-
-        r = requests.get(url, headers=self._headers(), params=params)
-
-        try:
-            data = r.json()
-        except Exception:
-            return []
-
-        return data.get("Items", [])
-
-
-    # -----------------------
-    # GET LIBRARY (FIX)
-    # -----------------------
     def get_library(self, limit=20):
         movies = self.get_all_movies()
         series = self.get_all_series()
@@ -106,29 +94,26 @@ class JellyfinTool:
         return {
             "movies": [
                 {
-                    "id": m["Id"],
-                    "title": m.get("Name"),
+                    "id": movie["Id"],
+                    "title": movie.get("Name"),
                     "type": "movie",
-                    "image": self.get_image_url(m)
+                    "image": self.get_image_url(movie),
                 }
-                for m in movies[:limit]
+                for movie in movies[:limit]
             ],
             "series": [
                 {
-                    "id": s["Id"],
-                    "title": s.get("Name"),
+                    "id": show["Id"],
+                    "title": show.get("Name"),
                     "type": "series",
-                    "image": self.get_image_url(s)
+                    "image": self.get_image_url(show),
                 }
-                for s in series[:limit]
-            ]
+                for show in series[:limit]
+            ],
         }
 
-    # -----------------------
-    # CLEAN QUERY (FIXED)
-    # -----------------------
     def clean_query(self, query: str):
-        q = query.lower()
+        q = (query or "").lower()
 
         stopwords = [
             "quiero ver",
@@ -143,59 +128,56 @@ class JellyfinTool:
             "la",
             "el",
             "los",
-            "las"
+            "las",
         ]
 
-        for w in stopwords:
-            q = q.replace(w, " ")
+        for word in stopwords:
+            pattern = rf"\b{re.escape(word)}\b"
+            q = re.sub(pattern, " ", q)
 
         q = re.sub(r"\s+", " ", q).strip()
-
         return q
 
-    # -----------------------
-    # SEARCH MOVIE (FIXED CORE)
-    # -----------------------
     def search_movie(self, query: str):
         items = self.get_all_movies()
+        cleaned_query = self.clean_query(query)
+        q = normalize(cleaned_query)
 
-        q = normalize(self.clean_query(query))
+        if not q:
+            return {
+                "type": "uncertain",
+                "message": "Dime el nombre de una película para buscarla.",
+                "results": [],
+            }
 
         best_matches = []
 
-        for m in items:
-            name = normalize(m.get("Name"))
-            original = normalize(m.get("OriginalTitle"))
-
+        for item in items:
+            name = normalize(item.get("Name"))
+            original = normalize(item.get("OriginalTitle"))
             score = max(
                 fuzz.token_set_ratio(q, name),
-                fuzz.token_set_ratio(q, original)
+                fuzz.token_set_ratio(q, original),
             )
 
-            m["_score"] = score
-            best_matches.append(m)
+            candidate = dict(item)
+            candidate["_score"] = score
+            best_matches.append(candidate)
 
-        # ordenar por score
-        best_matches.sort(key=lambda x: x["_score"], reverse=True)
+        best_matches.sort(key=lambda value: value["_score"], reverse=True)
 
-        # DEBUG IMPORTANTE
-        logger.info(f"🔎 QUERY FINAL: {q}")
-        logger.info("📊 TOP MATCHES:")
-
-        for m in best_matches[:10]:
-            logger.info(f"🎬 {m.get('Name')} -> {m['_score']}")
+        logger.info("Query final: %s", q)
+        for match in best_matches[:10]:
+            logger.info("Match %s -> %s", match.get("Name"), match["_score"])
 
         best = best_matches[0] if best_matches else None
         best_score = best["_score"] if best else 0
 
-        # -----------------------
-        # THRESHOLDS
-        # -----------------------
         if not best or best_score < 55:
             return {
                 "type": "uncertain",
                 "message": "No estoy seguro de la película",
-                "results": best_matches[:5]
+                "results": best_matches[:5],
             }
 
         if best_score < 75:
@@ -203,126 +185,94 @@ class JellyfinTool:
                 "type": "suggestion",
                 "message": f"¿Te refieres a '{best.get('Name')}'?",
                 "result": best,
-                "score": best_score
+                "results": best_matches[:5],
+                "score": best_score,
             }
 
         return {
             "type": "match",
             "result": best,
-            "score": best_score
+            "score": best_score,
         }
 
-    # -----------------------
-    # RUN (FIXED BUG HERE)
-    # -----------------------
-    def run(self, query: str):
-        result = self.search_movie(query)
-
-        # no match claro
-        if result.get("type") == "uncertain":
-            return {"error": "No se encontraron películas"}
-
-        movie = result.get("result")
-
-        if not movie:
-            return {"error": "No se encontraron películas"}
-
-        item_id = movie["Id"]
-
-        return {
-            "type": "video",
-            "title": movie.get("Name"),
-            "image": self.get_image_url(movie),
-            "item_id": item_id,
-            "score": result.get("score")
-        }
-
-    # -----------------------
-    # ITEM INFO
-    # -----------------------
     def get_item_info(self, item_id):
-        url = f"{self.base_url}/Users/{self.user_id}/Items/{item_id}"
-        r = requests.get(url, headers=self._headers())
-        return r.json()
+        return self._request_json(f"/Users/{self.user_id}/Items/{item_id}")
 
-    # -----------------------
-    # AUDIO TRACKS
-    # -----------------------
-    def get_audio_tracks(self, item_id):
+    def _get_primary_media_source(self, item_id):
         data = self.get_item_info(item_id)
+        media_sources = data.get("MediaSources", [])
+        return data, media_sources[0] if media_sources else None
 
-        media = data.get("MediaSources", [])
-        if not media:
+    def get_audio_tracks(self, item_id):
+        _, media_source = self._get_primary_media_source(item_id)
+        if not media_source:
             return []
 
-        streams = media[0].get("MediaStreams", [])
-
         audio_tracks = []
-
-        for s in streams:
-            if s.get("Type") == "Audio":
-                audio_tracks.append({
-                    "index": s.get("Index"),
-                    "language": s.get("Language") or "unknown"
-                })
+        for stream in media_source.get("MediaStreams", []):
+            if stream.get("Type") == "Audio":
+                audio_tracks.append(
+                    {
+                        "index": stream.get("Index"),
+                        "language": stream.get("Language") or "unknown",
+                    }
+                )
 
         return audio_tracks
 
-    # -----------------------
-    # IMAGE
-    # -----------------------
-    def get_image_url(self, item):
-        return f"{self.base_url}/Items/{item['Id']}/Images/Primary?api_key={self.api_key}"
-
-    # -----------------------
-    # STREAM URL
-    # -----------------------
-    def get_stream_url(self, item_id, audio_index=0):
-        return (
-            f"{self.base_url}/Videos/{item_id}/master.m3u8"
-            f"?api_key={self.api_key}"
-            f"&MediaSourceId={item_id}"
-            f"&AudioStreamIndex={audio_index}"
-            f"&VideoCodec=h264"
-            f"&AudioCodec=aac"
-            f"&AllowVideoStreamCopy=true"
-            f"&AllowAudioStreamCopy=false"
-        )
-    
     def get_audio_stream_by_language(self, item_id, lang_code="spa"):
-        data = self.get_item_info(item_id)
-
-        media = data.get("MediaSources", [])
-        if not media:
+        _, media_source = self._get_primary_media_source(item_id)
+        if not media_source:
             return None
 
-        streams = media[0].get("MediaStreams", [])
+        normalized_lang = (lang_code or "").lower()
 
-        for s in streams:
-            if s.get("Type") == "Audio":
-                if (s.get("Language") or "").lower().startswith(lang_code):
-                    return s.get("Index")
+        for stream in media_source.get("MediaStreams", []):
+            if stream.get("Type") != "Audio":
+                continue
+
+            language = (stream.get("Language") or "").lower()
+            if language.startswith(normalized_lang):
+                return stream.get("Index")
 
         return None
-    
 
-    # -----------------------
-    # IMAGE
-    # -----------------------
     def get_image_url(self, item):
-        return f"{self.base_url}/Items/{item['Id']}/Images/Primary?api_key={self.api_key}"
+        item_id = item.get("Id") if isinstance(item, dict) else None
+        if not item_id:
+            return None
 
-    # -----------------------
-    # MAIN
-    # -----------------------
+        params = urlencode({"api_key": self.api_key})
+        return f"{self.base_url}/Items/{item_id}/Images/Primary?{params}"
+
+    def get_stream_url(self, item_id, audio_index=0):
+        _, media_source = self._get_primary_media_source(item_id)
+
+        params = {
+            "api_key": self.api_key,
+            "AudioStreamIndex": audio_index,
+            "VideoCodec": "h264",
+            "AudioCodec": "aac",
+            "AllowVideoStreamCopy": "true",
+            "AllowAudioStreamCopy": "false",
+        }
+
+        if media_source and media_source.get("Id"):
+            params["MediaSourceId"] = media_source["Id"]
+
+        return f"{self.base_url}/Videos/{item_id}/master.m3u8?{urlencode(params)}"
+
     def run(self, query: str):
         result = self.search_movie(query)
+        result_type = result.get("type")
 
-        if result.get("type") == "uncertain":
-            return {"error": "No se encontraron películas"}
+        if result_type == "uncertain":
+            return {"error": result.get("message", "No se encontraron películas")}
+
+        if result_type == "suggestion":
+            return {"error": result.get("message", "No estoy seguro de la película")}
 
         movie = result.get("result")
-
         if not movie:
             return {"error": "No se encontraron películas"}
 
@@ -333,27 +283,29 @@ class JellyfinTool:
             "title": movie.get("Name"),
             "image": self.get_image_url(movie),
             "item_id": item_id,
-            "score": result.get("score")
+            "audio_tracks": self.get_audio_tracks(item_id),
+            "score": result.get("score"),
         }
-    
 
     def run_by_id(self, item_id):
         data = self.get_item_info(item_id)
+        if not data or not data.get("Id"):
+            return {"error": "No pude cargar ese contenido desde Jellyfin."}
 
         return {
             "type": "video",
             "title": data.get("Name"),
             "image": self.get_image_url(data),
             "item_id": item_id,
-            "audio_tracks": self.get_audio_tracks(item_id)
+            "audio_tracks": self.get_audio_tracks(item_id),
         }
 
 
-# INIT
-from app.config import JELLYFIN_URL, JELLYFIN_API_KEY, JELLYFIN_USER_ID
+from app.config import JELLYFIN_API_KEY, JELLYFIN_URL, JELLYFIN_USER_ID
+
 
 jellyfin = JellyfinTool(
     base_url=JELLYFIN_URL,
     api_key=JELLYFIN_API_KEY,
-    user_id=JELLYFIN_USER_ID
+    user_id=JELLYFIN_USER_ID,
 )
