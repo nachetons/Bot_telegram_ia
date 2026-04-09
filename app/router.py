@@ -151,6 +151,16 @@ def _clear_placeholder(chat_id, placeholder_message_id=None, stop_placeholder=No
         delete_message(chat_id, placeholder_message_id)
 
 
+def _needs_placeholder(text):
+    normalized = (text or "").strip()
+
+    if not normalized:
+        return False
+
+    incomplete_commands = ["/wiki", "/img", "/image", "/video", "/tiempo", "/weather"]
+    return normalized not in incomplete_commands
+
+
 def process(text, chat_id, placeholder_message_id=None):
     stop_typing = threading.Event()
     stop_placeholder = threading.Event()
@@ -522,8 +532,11 @@ async def webhook(req: Request):
     if not text or not chat_id:
         return {"ok": True}
 
-    placeholder_message_id = send_temp_message(chat_id, "Buscando...")
-    send_chat_action(chat_id, "typing")
+    placeholder_message_id = None
+    if _needs_placeholder(text):
+        placeholder_message_id = send_temp_message(chat_id, "Buscando...")
+        send_chat_action(chat_id, "typing")
+
     threading.Thread(
         target=process,
         args=(text, chat_id, placeholder_message_id)
