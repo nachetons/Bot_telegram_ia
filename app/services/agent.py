@@ -9,6 +9,7 @@ from app.tools.images import get_images
 from app.tools.weather import get_weather
 from app.tools.wiki import wikipedia
 from app.tools.jellyfin import jellyfin
+from app.tools.youtube import download_best_youtube_video
 from app.tools.web import search_web_results
 from app.core.context_builder import build_context
 from app.core.refiner import refine_context
@@ -659,6 +660,13 @@ def agent(query: str):
                 [{"text": "📺 Series", "callback_data": "open_library:series"}]
             ]
             }, ["jellyfin_library"]
+
+    # -----------------------
+    # YOUTUBE
+    # -----------------------
+    elif intent == "youtube":
+        result = download_best_youtube_video(query)
+        return result, ["youtube_tool"]
 
     # -----------------------
     # DEFAULT (LLM)

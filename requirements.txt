@@ -7,3 +7,7 @@ bs4
 trafilatura
 ftfy
 rapidfuzz
+yt-dlp
+deep-translator
+gTTS
+faster-whisper

@@ -15,3 +15,6 @@ JELLYFIN_USER_ID = os.getenv("JELLYFIN_USER_ID", "").strip()
 JELLYFIN_API_KEY = os.getenv("JELLYFIN_API_KEY", "").strip()
 JELLYFIN_URL = os.getenv("JELLYFIN_URL", "").strip()
 HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+YOUTUBE_MAX_HEIGHT = int(os.getenv("YOUTUBE_MAX_HEIGHT", "720").strip() or "720")
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base").strip() or "base"

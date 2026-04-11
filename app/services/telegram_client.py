@@ -1,4 +1,5 @@
 import requests
+from pathlib import Path
 from app.config import TELEGRAM_BOT_TOKEN
 
 BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
@@ -22,6 +23,40 @@ def send_message(chat_id: str, text: str):
 
     except Exception as e:
         print("send_message error:", e)
+
+
+def get_file_path(file_id: str):
+    try:
+        r = requests.post(
+            f"{BASE_URL}/getFile",
+            json={"file_id": file_id},
+            timeout=10
+        )
+        data = r.json()
+        if data.get("ok"):
+            return data.get("result", {}).get("file_path")
+    except Exception as e:
+        print("get_file_path error:", e)
+    return None
+
+
+def download_telegram_file(file_id: str, destination_path: str):
+    try:
+        file_path = get_file_path(file_id)
+        if not file_path:
+            return None
+
+        file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+        response = requests.get(file_url, timeout=120)
+        response.raise_for_status()
+
+        path = Path(destination_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(response.content)
+        return str(path)
+    except Exception as e:
+        print("download_telegram_file error:", e)
+        return None
 
 
 def send_temp_message(chat_id: str, text: str = "Buscando..."):
@@ -135,6 +170,26 @@ def send_photo(chat_id: str, image_url: str, caption: str = None):
         pass
 
 
+def send_photo_with_buttons(chat_id: str, image_url: str, caption: str, buttons: list):
+    try:
+        payload = {
+            "chat_id": chat_id,
+            "photo": image_url,
+            "caption": (caption or "")[:1024],
+            "reply_markup": {
+                "inline_keyboard": buttons
+            }
+        }
+
+        requests.post(
+            f"{BASE_URL}/sendPhoto",
+            json=payload,
+            timeout=10
+        )
+    except Exception as e:
+        print("send_photo_with_buttons error:", e)
+
+
 def send_images(chat_id, images):
     media = []
     source_labels = []
@@ -207,6 +262,56 @@ def send_video(chat_id: str, video_url: str, caption: str = None):
     )
     except Exception as e:
         print("Error enviando video:", e)
+
+
+def send_local_video(chat_id: str, video_path: str, caption: str = None):
+    try:
+        path = Path(video_path)
+        if not path.exists():
+            print("send_local_video error: file not found", video_path)
+            return
+
+        with path.open("rb") as video_file:
+            response = requests.post(
+                f"{BASE_URL}/sendVideo",
+                data={
+                    "chat_id": chat_id,
+                    "caption": (caption or "")[:1024],
+                    "supports_streaming": "true",
+                },
+                files={
+                    "video": video_file
+                },
+                timeout=120
+            )
+            print("TG LOCAL VIDEO:", response.status_code, response.text)
+    except Exception as e:
+        print("send_local_video error:", e)
+
+
+def send_local_audio(chat_id: str, audio_path: str, title: str = None, performer: str = None):
+    try:
+        path = Path(audio_path)
+        if not path.exists():
+            print("send_local_audio error: file not found", audio_path)
+            return
+
+        with path.open("rb") as audio_file:
+            response = requests.post(
+                f"{BASE_URL}/sendAudio",
+                data={
+                    "chat_id": chat_id,
+                    "title": (title or "")[:256],
+                    "performer": (performer or "")[:256],
+                },
+                files={
+                    "audio": audio_file
+                },
+                timeout=120
+            )
+            print("TG LOCAL AUDIO:", response.status_code, response.text)
+    except Exception as e:
+        print("send_local_audio error:", e)
 
 
 def send_message_with_buttons(chat_id: str, text: str, buttons: list):

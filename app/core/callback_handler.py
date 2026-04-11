@@ -1,4 +1,5 @@
 from app.tools.jellyfin import jellyfin
+from app.tools.youtube import download_youtube_audio, download_youtube_video
 import logging
 
 logger = logging.getLogger("bot")
@@ -109,5 +110,16 @@ def handle_callback(callback):
     if data.startswith("play_movie:") or data.startswith("play_episode:"):
         item_id = data.split(":")[1]
         return jellyfin.run_by_id(item_id)
+
+    # ---------------------------------------------------------
+    # 4. YOUTUBE -> DESCARGAR Y ENVIAR A TELEGRAM
+    # ---------------------------------------------------------
+    if data.startswith("youtube_play:"):
+        video_id = data.split(":", 1)[1]
+        return download_youtube_video(video_id)
+
+    if data.startswith("music_play:"):
+        video_id = data.split(":", 1)[1]
+        return download_youtube_audio(video_id)
 
     return None

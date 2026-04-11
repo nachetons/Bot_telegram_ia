@@ -8,7 +8,7 @@ from app.services.llm_client_cloud import call_llm_cloud
 
 logger = logging.getLogger("router_intent")
 
-ALLOWED_INTENTS = {"movies", "images", "weather", "wiki", "search", "library"}
+ALLOWED_INTENTS = {"movies", "images", "weather", "wiki", "search", "library", "youtube"}
 MOVIE_HINTS = (
     "ver",
     "pelicula",
@@ -57,6 +57,14 @@ WIKI_HINTS = (
     "when did",
     "who is",
     "what is",
+)
+YOUTUBE_HINTS = (
+    "/youtube",
+    "youtube",
+    "video de youtube",
+    "vídeo de youtube",
+    "busca en youtube",
+    "buscar en youtube",
 )
 TITLE_PREFIXES = [
     "quiero ver",
@@ -115,6 +123,12 @@ def detect_intent_fast(query: str):
     if q.startswith("/library") or q.startswith("/catalog") or q.startswith("/menu"):
         return "library"
 
+    if q.startswith("/youtube"):
+        return "youtube"
+
+    if any(hint in q for hint in YOUTUBE_HINTS):
+        return "youtube"
+
     if any(hint in q for hint in WIKI_HINTS):
         return "wiki"
 
@@ -134,7 +148,7 @@ def _intent_messages(query: str):
             "content": (
                 "Eres un sistema de clasificación de intención.\n\n"
                 "Responde SOLO con UNA palabra EXACTA de esta lista:\n"
-                "movies, images, weather, wiki, search, library\n\n"
+                "movies, images, weather, wiki, search, library, youtube\n\n"
                 "No expliques nada."
             ),
         },
@@ -239,13 +253,14 @@ def parse_query(query: str):
                 "Devuelve SOLO JSON válido.\n\n"
                 "Formato:\n"
                 "{\n"
-                '  "intent": "movies | images | weather | wiki | search | library",\n'
+                '  "intent": "movies | images | weather | wiki | search | library | youtube",\n'
                 '  "title": "string o null"\n'
                 "}\n\n"
                 "Reglas:\n"
                 "- intent = movies solo si el usuario quiere reproducir o ver una película concreta\n"
                 "- intent = search si pregunta por listas, filmografías, últimas películas o información sobre actores/directores\n"
                 "- intent = library si pide abrir menú, biblioteca o catálogo\n"
+                "- intent = youtube si pide buscar vídeos de YouTube\n"
                 "- extrae SOLO el título de la película si aplica\n"
                 '- elimina frases como "quiero ver", "pon", "reproduce", "la peli de"\n'
                 "- si no hay película, title = null\n"

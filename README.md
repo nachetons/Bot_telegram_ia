@@ -45,6 +45,7 @@ This project combines a **FastAPI backend**, an **LLM-based agent**, and **Jelly
 - Weather information
 - Wikipedia queries
 - Web scraping
+- YouTube video search
 
 ---
 
@@ -121,6 +122,9 @@ JELLYFIN_URL=http://your-server-ip:8096
 JELLYFIN_API_KEY=your_jellyfin_api_key
 JELLYFIN_USER_ID=your_user_id
 
+# === YouTube (optional tuning) ===
+YOUTUBE_MAX_HEIGHT=720
+
 ```
 ## 🐳 Docker Setup
 
@@ -169,6 +173,19 @@ docker-compose up -d --build
 | `/img <query>`    | Search images           |
 | `/wiki <query>`   | Wikipedia search        |
 | `/weather <city>` | Get weather information |
+| `/youtube <query>` | Busca el mejor resultado de YouTube y lo envía a Telegram |
+| `/music <query>` | Busca música y la envía como audio directamente a Telegram |
+| `/music buscar <query>` | Muestra varias opciones musicales |
+| `/music fav <query>` | Guarda una canción en favoritos |
+| `/music favs` | Lista tus favoritos musicales |
+| `/music recomendar` | Sugiere música según tu historial y favoritos |
+| `/playlist crear <nombre>` | Crea una playlist local |
+| `/playlist add <nombre> \| <canción>` | Añade una canción a una playlist |
+| `/playlist listas` | Lista las playlists creadas |
+| `/playlist remove <nombre> \| <posición>` | Elimina una canción de una playlist |
+| `/playlist borrar <nombre>` | Elimina una playlist completa |
+| `/playlist ver <nombre>` | Muestra una playlist |
+| `/playlist play <nombre>` | Reproduce el primer tema de una playlist |
 
 
 Natural Language Examples
@@ -177,7 +194,22 @@ Natural Language Examples
 Ponme una película de terror
 I want to watch Interstellar
 ¿Qué tiempo hace en Madrid?
+/youtube Waka Waka Shakira
 ```
+
+`/youtube <query>` ahora intenta:
+- buscar el resultado más probable
+- priorizar vídeos con más visualizaciones y señales de oficialidad
+- descargarlo temporalmente
+- enviarlo como vídeo nativo de Telegram
+
+La capa `/music` reutiliza esa lógica para construir una biblioteca musical local por usuario con:
+- historial
+- favoritos
+- playlists en JSON
+- recomendaciones básicas según uso
+
+En `/music`, el bot prioriza audio y envía pistas reproducibles en Telegram usando `sendAudio`.
 
 The agent automatically:
 
