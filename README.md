@@ -1,267 +1,540 @@
-# 🤖 Jellyfin AI Agent - Telegram Bot
+# 🤖 Telegram Media Agent
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
 ![Docker](https://img.shields.io/badge/Docker-Ready-blue)
 ![Telegram](https://img.shields.io/badge/Telegram-Bot-blue)
+![Jellyfin](https://img.shields.io/badge/Jellyfin-Integrated-7A5AF8)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-Turn your **Jellyfin server** into an intelligent, AI-powered Telegram assistant.
-
-This project combines a **FastAPI backend**, an **LLM-based agent**, and **Jellyfin integration** to provide a seamless media browsing and streaming experience directly inside Telegram.
+Bot de Telegram centrado en Jellyfin, búsqueda web, YouTube, música, traducción y utilidades rápidas, montado sobre FastAPI.
 
 ---
 
-## 🚀 Features
+## ✨ Qué hace
 
-### 🧠 AI-Powered Agent
-- Natural language understanding
-- Intent classification (movies, weather, wiki, etc.)
-- Context-aware responses
+- Navega la biblioteca de Jellyfin con menús y callbacks.
+- Busca y reproduce películas desde Telegram.
+- Busca vídeos de YouTube y los envía al chat.
+- Busca música y la envía como audio reproducible.
+- Mantiene favoritos, historial y playlists locales por usuario.
+- Traduce texto y notas de voz, con pronunciación del resultado.
+- Busca en Wikipedia, imágenes y tiempo.
+- Usa modos guiados cuando lanzas ciertos comandos vacíos.
 
-### 🎬 Jellyfin Integration
-- Browse full library (movies & series)
-- Interactive menus using inline buttons
-- Callback-based navigation (no message spam)
+## 🚀 Funciones principales
 
-### 📚 Scalable Library System
-- Handles large libraries without breaking Telegram limits
-- Pagination via callbacks
-- Clean and responsive UX
+### 🎬 Jellyfin
 
-### 🎧 Multi-Audio Streaming
-- Detects available audio tracks automatically
-- Language-based playback selection
-- Supports multiple audio streams per media
+- `/library`
+- `/menu`
+- `/catalog`
+- `/video <pelicula>`
+- Navegación por callbacks para evitar llenar el chat de mensajes.
+- Selección de idioma/audio cuando el contenido lo permite.
 
-### ⚡ Optimized Streaming
-- HLS streaming (`master.m3u8`)
-- Video stream copy (low CPU usage)
-- Fast playback start
-- Seek support inside Telegram player
+### 📺 YouTube
 
-### 🧰 Integrated Tools
-- Image search
-- Weather information
-- Wikipedia queries
-- Web scraping
-- YouTube video search
+- `/youtube <busqueda>`
+- Busca el mejor resultado y lo envía como vídeo nativo de Telegram.
+- Usa caché de búsquedas y caché de descargas para reducir latencia.
+- Limpia archivos temporales automáticamente.
 
----
+### 🎵 Música
 
-## 📁 Project Structure
+- `/music <cancion>`
+- `/music buscar <consulta>`
+- `/music fav <consulta>`
+- `/music favs`
+- `/music recomendar`
 
-```bash
+Características:
+
+- Prioriza audio frente a vídeo.
+- Guarda historial y favoritos por `chat_id`.
+- Usa almacenamiento local en JSON.
+- Reutiliza resultados y descargas de YouTube para mejorar rendimiento.
+
+### 📚 Playlists locales
+
+- `/playlist`
+- `/playlist crear <nombre>`
+- `/playlist listas`
+- `/playlist add <nombre> | <cancion>`
+- `/playlist ver <nombre>`
+- `/playlist play <nombre>`
+- `/playlist remove <nombre> | <posicion>`
+- `/playlist borrar <nombre>`
+
+Características:
+
+- Gestor interactivo por botones.
+- Añadir canciones en modo guiado.
+- Eliminar canciones por posición o desde botones.
+- Cada usuario mantiene sus propias playlists.
+
+### 🌍 Traducción
+
+- `/translate <destino> | <texto>`
+- `/translate <origen> | <destino> | <texto>`
+- `/translate`
+
+Características:
+
+- Traducción directa o guiada.
+- Selector de idiomas frecuentes.
+- Soporte para nota de voz dentro del flujo de traducción.
+- Botón para escuchar la pronunciación del texto traducido.
+- Generación local de audio de pronunciación.
+- Transcripción local con `faster-whisper`.
+
+### 🧰 Otras utilidades
+
+- `/wiki <tema>`
+- `/img <tema>`
+- `/image <tema>`
+- `/weather <ciudad>`
+- `/tiempo <ciudad>`
+- `/start`
+- `/helper`
+
+## 🧭 Modo guiado
+
+Algunos comandos se pueden usar sin parámetros y el bot te va guiando:
+
+- `/video`
+- `/wiki`
+- `/img`
+- `/image`
+- `/weather`
+- `/tiempo`
+- `/youtube`
+- `/translate`
+- `/playlist`
+
+Ejemplos:
+
+- `/translate` -> te pide el texto y luego el idioma destino.
+- `/video` -> te pregunta qué película quieres ver.
+- `/playlist` -> te deja elegir playlist y acción.
+
+## 🧪 Ejemplos de uso
+
+```text
+/library
+/video interestellar
+/wiki chuck norris
+/img cascadas
+/weather madrid
+/youtube waka waka shakira
+/music Danza Kuduro
+/music fav Hall of Fame
+/playlist crear motivacion
+/playlist add motivacion | believer imagine dragons
+/translate en | hola mundo
+```
+
+## 💡 Casos de uso
+
+### 1. Explorar la biblioteca de Jellyfin
+
+Caso ideal para usuarios que quieren navegar sin recordar nombres exactos.
+
+Flujo:
+
+```text
+/library
+```
+
+Resultado esperado:
+
+- el bot abre un menú con `Películas` y `Series`
+- la navegación se hace con botones
+- no se genera spam de mensajes al paginar
+
+Valor técnico:
+
+- usa callbacks inline
+- evita desbordar límites de Telegram
+- mantiene una experiencia más cercana a una interfaz real que a un chat simple
+
+### 2. Reproducir una película concreta
+
+Caso ideal para búsqueda directa.
+
+Flujo:
+
+```text
+/video interstellar
+```
+
+O en modo guiado:
+
+```text
+/video
+```
+
+Resultado esperado:
+
+- si se pasa el nombre, busca directamente la película
+- si no se pasa nada, el bot pregunta cuál quieres ver
+- cuando encuentra el contenido, devuelve reproducción y opciones de audio si están disponibles
+
+Valor técnico:
+
+- combina enrutado directo y fallback inteligente
+- aprovecha Jellyfin como fuente principal
+
+### 3. Buscar y enviar un vídeo de YouTube
+
+Caso ideal para compartir clips, canciones o vídeos concretos.
+
+Flujo:
+
+```text
+/youtube waka waka shakira
+```
+
+O en modo guiado:
+
+```text
+/youtube
+```
+
+Resultado esperado:
+
+- el bot busca el mejor resultado
+- prioriza vídeos oficiales o más representativos
+- lo descarga y lo envía como vídeo nativo de Telegram
+
+Valor técnico:
+
+- usa caché de búsqueda y descarga
+- limpia temporales automáticamente
+- reduce tiempo de respuesta en repeticiones
+
+### 4. Reproducir música como audio
+
+Caso ideal para usar Telegram como reproductor rápido.
+
+Flujo:
+
+```text
+/music Danza Kuduro
+```
+
+Resultado esperado:
+
+- el bot localiza la mejor pista musical
+- prioriza audio frente a vídeo
+- la envía como audio reproducible dentro de Telegram
+
+Valor técnico:
+
+- usa ranking específico para música
+- evita descargar vídeo si solo hace falta audio
+- aprovecha temporales reutilizables
+
+### 5. Guardar favoritos musicales
+
+Caso ideal para empezar a construir perfil musical por usuario.
+
+Flujo:
+
+```text
+/music fav Hall of Fame
+/music favs
+/music recomendar
+```
+
+Resultado esperado:
+
+- se guarda la canción en favoritos
+- el usuario puede listar sus favoritos
+- el bot puede recomendar música básica según historial y canales más repetidos
+
+Valor técnico:
+
+- guarda datos locales por `chat_id`
+- no depende de Spotify ni de cuentas externas
+
+### 6. Crear y gestionar playlists
+
+Caso ideal para usuarios que quieren una pequeña biblioteca musical propia dentro del bot.
+
+Flujo directo:
+
+```text
+/playlist crear motivacion
+/playlist add motivacion | believer imagine dragons
+/playlist ver motivacion
+```
+
+Flujo guiado:
+
+```text
+/playlist
+```
+
+Resultado esperado:
+
+- el bot permite crear playlists
+- se pueden añadir canciones por texto o por flujo guiado
+- se puede ver, reproducir, quitar canciones o borrar la playlist
+
+Valor técnico:
+
+- cada usuario mantiene sus playlists por separado
+- el bot usa menús y callbacks para que el flujo sea más natural
+
+### 7. Traducir texto
+
+Caso ideal para traducción rápida en chat.
+
+Flujo directo:
+
+```text
+/translate en | hola mundo
+/translate es | en | good morning
+```
+
+Flujo guiado:
+
+```text
+/translate
+```
+
+Resultado esperado:
+
+- el bot traduce el texto
+- si usas el modo guiado, primero te pide el contenido y luego el idioma destino
+- tras traducir, ofrece un botón para escuchar la pronunciación
+
+Valor técnico:
+
+- combina traducción directa, selector de idiomas y TTS local
+
+### 8. Traducir una nota de voz
+
+Caso ideal para usar el bot como traductor hablado.
+
+Flujo:
+
+```text
+/translate
+```
+
+Después:
+
+- envías una nota de voz
+- el bot transcribe el audio
+- te muestra el texto detectado
+- eliges idioma
+- devuelve la traducción y la pronunciación
+
+Valor técnico:
+
+- transcripción local con `faster-whisper`
+- no depende de tokens externos para STT
+- reutiliza el mismo flujo guiado que la traducción por texto
+
+### 9. Buscar información rápida
+
+Casos típicos:
+
+```text
+/wiki chuck norris
+/img cascadas
+/weather madrid
+```
+
+Resultado esperado:
+
+- `/wiki` devuelve información estructurada
+- `/img` devuelve imágenes relevantes
+- `/weather` devuelve el tiempo de la ciudad indicada
+
+Valor técnico:
+
+- cada tool está separada
+- el router decide si usar flujo directo o guiado
+
+### 10. Onboarding de un usuario nuevo
+
+Caso ideal para alguien que entra por primera vez al bot.
+
+Flujo:
+
+```text
+/start
+/helper
+```
+
+Resultado esperado:
+
+- `/start` resume el bot sin saturar
+- `/helper` documenta todos los comandos, alias, subcomandos y modos guiados
+
+Valor técnico:
+
+- mejora la descubribilidad
+- reduce dudas y errores de uso
+
+## 👤 Sesiones por usuario
+
+El bot separa el estado por `chat_id`.
+
+Cada usuario mantiene su propio:
+
+- historial musical
+- favoritos
+- playlists
+- sesión guiada actual
+- traducción pendiente
+
+## ⚡ Rendimiento y optimizaciones
+
+YouTube y música incluyen varias optimizaciones:
+
+- caché de búsquedas por consulta
+- caché de descargas por `video_id`
+- reutilización de archivos temporales existentes
+- selección distinta para modo vídeo y modo música
+- limpieza automática de temporales
+
+Esto acelera bastante:
+
+- `/youtube`
+- `/music`
+- `/playlist add`
+
+## 📁 Estructura del proyecto
+
+```text
 Agent/
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
+├── BOTFATHER_COMMANDS.txt
 └── app/
     ├── main.py
     ├── router.py
     ├── config.py
-    │
     ├── core/
     │   ├── callback_handler.py
-    │   ├── router_intent.py
-    │   ├── refiner.py
     │   ├── context_builder.py
-    │   └── prompt.py
-    │
+    │   ├── prompt.py
+    │   ├── refiner.py
+    │   └── router_intent.py
     ├── services/
     │   ├── agent.py
     │   ├── llm_client.py
     │   ├── llm_client_cloud.py
     │   ├── llm_provider.py
     │   └── telegram_client.py
-    │
     └── tools/
-        ├── jellyfin.py
         ├── images.py
+        ├── jellyfin.py
+        ├── music_local.py
+        ├── scraper.py
+        ├── transcription.py
+        ├── translate.py
         ├── weather.py
-        ├── wiki.py
         ├── web.py
-        └── scraper.py
-
-```
----
-
-## ⚙️ Installation
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/youruser/jellyfin-ai-agent.git
-cd jellyfin-ai-agent
+        ├── wiki.py
+        └── youtube.py
 ```
 
-2. Configuration
-Create a .env file or configure app/config.py:
-## 🔐 Environment Variables
+## ⚙️ Variables de entorno
+
+Ejemplo base:
+
 ```env
-# === LLM Providers ===
-GEMINI_API_KEY=your_gemini_api_key
-GROQ_API_KEY=your_groq_api_key
-OPENROUTER_API_KEY=your_openrouter_api_key
-OPENROUTER_URL=your_openrouter_url
-OPENROUTER_MODEL=your_model_name
+# Telegram
+TELEGRAM_TOKEN=tu_token
 
-# === Local LLM (Optional) ===
-LM_STUDIO_URL=http://localhost:1234
-MODEL_NAME_LLM=your_local_model
+# Jellyfin
+JELLYFIN_URL=https://tu-jellyfin
+JELLYFIN_API_KEY=tu_api_key
+JELLYFIN_USER_ID=tu_user_id
 
-# === GitHub (Optional) ===
-GITHUB_TOKEN=your_github_token
+# LLM local
+LM_STUDIO_URL=http://localhost:1234/v1/chat/completions
+MODEL_NAME_LLM=meta-llama-3.1-8b-instruct
 
-# === Telegram ===
-TELEGRAM_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
+# LLM cloud
+OPENROUTER_API_KEY=tu_api_key
+OPENROUTER_URL=https://openrouter.ai/api/v1/chat/completions
+OPENROUTER_MODEL=openrouter/free
 
-# === Jellyfin ===
-JELLYFIN_URL=http://your-server-ip:8096
-JELLYFIN_API_KEY=your_jellyfin_api_key
-JELLYFIN_USER_ID=your_user_id
-
-# === YouTube (optional tuning) ===
+# YouTube
 YOUTUBE_MAX_HEIGHT=720
 
-```
-## 🐳 Docker Setup
-
-This project includes Docker support for easy deployment.
-
-### 📦 Dockerfile
-
-```dockerfile
-FROM python:3.11
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Whisper local
+WHISPER_MODEL_SIZE=base
 ```
 
-### 📦 Docker-compose
+Valores recomendados para `WHISPER_MODEL_SIZE`:
 
-```yaml
-version: "3.9"
+- `tiny` si priorizas velocidad
+- `base` como equilibrio general
+- `small` si quieres algo más fino y tu máquina aguanta
 
-services:
-  jellyfin-agent:
-    build: .
-    container_name: jellyfin-ai-agent
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    restart: unless-stopped
-```
+## 🛠️ Instalación
 
-3. Run with Docker
-docker-compose up -d --build
-
-🤖 Usage
-| Command           | Description             |
-| ----------------- | ----------------------- |
-| `/menu`           | Open main menu          |
-| `/library`        | Browse full library     |
-| `/video <name>`   | Search and play a movie |
-| `/img <query>`    | Search images           |
-| `/wiki <query>`   | Wikipedia search        |
-| `/weather <city>` | Get weather information |
-| `/youtube <query>` | Busca el mejor resultado de YouTube y lo envía a Telegram |
-| `/music <query>` | Busca música y la envía como audio directamente a Telegram |
-| `/music buscar <query>` | Muestra varias opciones musicales |
-| `/music fav <query>` | Guarda una canción en favoritos |
-| `/music favs` | Lista tus favoritos musicales |
-| `/music recomendar` | Sugiere música según tu historial y favoritos |
-| `/playlist crear <nombre>` | Crea una playlist local |
-| `/playlist add <nombre> \| <canción>` | Añade una canción a una playlist |
-| `/playlist listas` | Lista las playlists creadas |
-| `/playlist remove <nombre> \| <posición>` | Elimina una canción de una playlist |
-| `/playlist borrar <nombre>` | Elimina una playlist completa |
-| `/playlist ver <nombre>` | Muestra una playlist |
-| `/playlist play <nombre>` | Reproduce el primer tema de una playlist |
-
-
-Natural Language Examples
+### Local
 
 ```bash
-Ponme una película de terror
-I want to watch Interstellar
-¿Qué tiempo hace en Madrid?
-/youtube Waka Waka Shakira
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-`/youtube <query>` ahora intenta:
-- buscar el resultado más probable
-- priorizar vídeos con más visualizaciones y señales de oficialidad
-- descargarlo temporalmente
-- enviarlo como vídeo nativo de Telegram
+### Docker
 
-La capa `/music` reutiliza esa lógica para construir una biblioteca musical local por usuario con:
-- historial
-- favoritos
-- playlists en JSON
-- recomendaciones básicas según uso
+El proyecto ya incluye `Dockerfile` y `docker-compose.yml`.
 
-En `/music`, el bot prioriza audio y envía pistas reproducibles en Telegram usando `sendAudio`.
+```bash
+docker compose up -d --build
+```
 
-The agent automatically:
+El `docker-compose.yml` actual usa recarga automática de `uvicorn` sobre `app/`, lo que facilita iterar en desarrollo.
 
-Detects intent
-Selects the appropriate tool
-Returns interactive results
-🧠 Architecture Overview
-User → Telegram → FastAPI Webhook
-                    ↓
-                 Router
-                    ↓
-                  Agent
-                    ↓
-          Intent Router (LLM)
-                    ↓
-                  Tools
-                    ↓
-           Telegram Client
+## 📦 Dependencias importantes
 
----
-🎬 Streaming Details
+- `ffmpeg`
+- `yt-dlp`
+- `deep-translator`
+- `gTTS`
+- `faster-whisper`
 
-To ensure compatibility with Telegram's internal player:
+`ffmpeg` es importante para:
 
-📡 Protocol
-- Uses HLS (master.m3u8) for proper duration detection
-🎧 Audio Handling
-- Uses AudioStreamIndex to select language
-- Forces AAC for compatibility
-⚡ Performance
-- AllowVideoStreamCopy=true to avoid transcoding
-🛡️ Stability
-- Includes MediaSourceId to prevent playback errors
+- mejorar audio en `/music`
+- facilitar ciertos flujos de medios
+- trabajar mejor con notas de voz y temporales
 
----
-⚠️ Telegram Limitations
-- Maximum ~4096 characters per message
-- Limit on inline buttons per message
+## 🤖 Comandos para BotFather
 
-Handled via:
-- Pagination using callbacks
-- Structured menus
+El archivo [BOTFATHER_COMMANDS.txt](\\192.168.1.46\Library\PYTHON\Agent\BOTFATHER_COMMANDS.txt) contiene la lista actualizada para copiarla directamente en BotFather.
 
----
-🛠️ Roadmap
-- Advanced filtering (genre, year, rating)
-- AI-based recommendations
-- Continue watching feature
-- Multi-user support
-- Authentication system
+## ✅ Estado actual
 
-🧑‍💻 Author
-- Ignacio Pinto Rodriguez
+El bot soporta actualmente:
 
+- comandos directos
+- callbacks
+- menús interactivos
+- sesiones guiadas
+- multiusuario por chat
+- reproducción de vídeo y audio
+- traducción de texto y voz
 
+## 📝 Notas
+
+- Si cambias dependencias, reconstruye el contenedor.
+- Si añades nuevos comandos, actualiza también `BOTFATHER_COMMANDS.txt`.
+- Si el bot parece seguir usando código viejo en Docker, recrea con:
+
+```bash
+docker compose up -d --build
+```

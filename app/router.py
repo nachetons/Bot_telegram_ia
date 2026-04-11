@@ -238,50 +238,108 @@ def _coerce_playlist_feedback(value):
 
 def _start_message():
     return (
-        "Bienvenido. Cada chat mantiene su propio contexto, playlists y seguimiento temporal.\n\n"
+        "Bienvenido. Cada chat mantiene su propio contexto, playlists y modos guiados.\n\n"
+        "Puedes usar el bot de dos formas:\n"
+        "1. Comando completo: /music Danza Kuduro\n"
+        "2. Comando vacío en modo guiado: /translate, /wiki, /youtube, /playlist\n\n"
         "Comandos principales:\n"
-        "/video <pelicula> - buscar una pelicula en Jellyfin\n"
+        "/library - abrir la biblioteca de Jellyfin\n"
+        "/video <pelicula> - buscar una película\n"
         "/wiki <tema> - buscar en Wikipedia\n"
-        "/img <tema> - buscar imagenes\n"
+        "/img <tema> - buscar imágenes\n"
         "/weather <ciudad> - consultar el tiempo\n"
-        "/youtube <busqueda> - buscar y enviar un video\n"
+        "/youtube <busqueda> - buscar y enviar un vídeo\n"
         "/music <cancion> - buscar y enviar audio\n"
         "/translate <destino> | <texto> - traducir texto\n"
-        "/playlist - gestionar tus playlists\n\n"
+        "/playlist - gestionar playlists\n"
+        "/helper - ver la guía completa\n\n"
         "Ejemplos:\n"
-        "/music Danza Kuduro\n"
-        "/translate en | hola mundo\n"
         "/youtube hall of fame\n"
-        "/playlist crear motivacion"
+        "/music Danza Kuduro\n"
+        "/translate en | hola mundo"
     )
 
 
 def _helper_message():
     return (
-        "Guía rápida del bot:\n\n"
-        "/start - bienvenida y uso básico\n"
-        "/helper - ver todos los comandos\n"
-        "/video <pelicula> - buscar y reproducir una película de Jellyfin\n"
-        "/wiki <tema> - buscar en Wikipedia\n"
-        "/img <tema> - buscar imágenes\n"
-        "/weather <ciudad> - consultar el tiempo\n"
-        "/youtube <búsqueda> - buscar y enviar un vídeo\n"
-        "/music <canción> - buscar y enviar audio\n"
-        "/translate <destino> | <texto> - traducir texto\n"
-        "/translate <origen> | <destino> | <texto> - traducir indicando idioma origen\n"
-        "/playlist - abrir el gestor interactivo de playlists\n"
-        "/playlist crear <nombre> - crear playlist\n"
-        "/playlist add <nombre> | <canción> - añadir canción\n"
-        "/playlist ver <nombre> - ver canciones\n"
-        "/playlist play <nombre> - reproducir la primera canción\n"
-        "/playlist remove <nombre> | <posición> - quitar una canción\n"
-        "/playlist borrar <nombre> - borrar playlist"
+        "Guía completa del bot:\n\n"
+        "Información general:\n"
+        "- Cada usuario tiene su propio contexto, playlists y sesiones guiadas.\n"
+        "- Muchos comandos se pueden usar vacíos y el bot te irá pidiendo lo necesario.\n"
+        "- Si escribes un comando que no existe, el bot te avisará.\n\n"
+        "Comandos generales:\n"
+        "/start - bienvenida y resumen rápido.\n"
+        "/helper - guía completa de comandos y modos de uso.\n\n"
+        "Biblioteca Jellyfin:\n"
+        "/library - abre la biblioteca.\n"
+        "/menu - alias de /library.\n"
+        "/catalog - alias de /library.\n"
+        "/video <pelicula> - busca y reproduce una película.\n"
+        "/video - modo guiado: te pregunta qué película quieres ver.\n\n"
+        "Wikipedia y búsqueda informativa:\n"
+        "/wiki <tema> - busca en Wikipedia.\n"
+        "/wiki - modo guiado: te pregunta qué quieres buscar.\n\n"
+        "Imágenes:\n"
+        "/img <tema> - busca imágenes.\n"
+        "/image <tema> - alias de /img.\n"
+        "/img - modo guiado: te pregunta qué imagen quieres buscar.\n\n"
+        "Tiempo:\n"
+        "/weather <ciudad> - consulta el tiempo.\n"
+        "/tiempo <ciudad> - alias de /weather.\n"
+        "/weather - modo guiado: te pregunta la ciudad.\n\n"
+        "YouTube:\n"
+        "/youtube <busqueda> - busca y envía automáticamente el mejor vídeo.\n"
+        "/youtube - modo guiado: te pregunta qué vídeo quieres buscar.\n\n"
+        "Música:\n"
+        "/music <cancion> - busca y envía audio.\n"
+        "/music buscar <consulta> - muestra resultados musicales con botones.\n"
+        "/music fav <consulta> - guarda una canción en favoritos.\n"
+        "/music favs - muestra tus favoritos.\n"
+        "/music recomendar - recomienda música según historial y favoritos.\n"
+        "/music - muestra ayuda rápida del módulo de música.\n\n"
+        "Traducción:\n"
+        "/translate <destino> | <texto> - traduce desde idioma automático.\n"
+        "/translate <origen> | <destino> | <texto> - traduce indicando idioma origen.\n"
+        "/translate - modo guiado: te pide el texto y luego te deja elegir idioma.\n"
+        "- Dentro de /translate también puedes enviar una nota de voz en vez de texto.\n"
+        "- Tras traducir, puedes usar el botón de pronunciación para escuchar el resultado.\n\n"
+        "Playlists:\n"
+        "/playlist - abre el gestor interactivo de playlists.\n"
+        "/playlist crear <nombre> - crea una playlist.\n"
+        "/playlist listas - lista tus playlists.\n"
+        "/playlist add <nombre> | <canción> - añade una canción.\n"
+        "/playlist ver <nombre> - muestra la playlist.\n"
+        "/playlist play <nombre> - reproduce la primera canción.\n"
+        "/playlist remove <nombre> | <posición> - quita una canción.\n"
+        "/playlist borrar <nombre> - elimina la playlist.\n"
+        "- En modo guiado de /playlist puedes elegir la playlist, añadir, quitar, ver, reproducir o borrar con botones.\n\n"
+        "Ejemplos rápidos:\n"
+        "/library\n"
+        "/video interestellar\n"
+        "/wiki chuck norris\n"
+        "/img cascadas\n"
+        "/weather madrid\n"
+        "/youtube waka waka shakira\n"
+        "/music Danza Kuduro\n"
+        "/translate en | hola mundo\n"
+        "/playlist crear motivacion\n"
+        "/playlist add motivacion | believer imagine dragons"
     )
 
 
 def run_direct_intent(intent, query, chat_id=None):
     if intent == "movies":
         return jellyfin.run(query), ["jellyfin_tool"]
+
+    if intent == "library":
+        return {
+            "type": "menu",
+            "text": "🎥 Biblioteca",
+            "buttons": [
+                [{"text": "🎬 Películas", "callback_data": "open_library:movies"}],
+                [{"text": "📺 Series", "callback_data": "open_library:series"}],
+            ]
+        }, ["jellyfin_library"]
 
     if intent == "images":
         from app.tools.images import get_images
@@ -405,7 +463,7 @@ def _needs_placeholder(text):
     if not normalized:
         return False
 
-    incomplete_commands = ["/start", "/helper", "/wiki", "/img", "/image", "/video", "/tiempo", "/weather", "/youtube", "/music", "/playlist", "/translate"]
+    incomplete_commands = ["/start", "/helper", "/library", "/menu", "/catalog", "/wiki", "/img", "/image", "/video", "/tiempo", "/weather", "/youtube", "/music", "/playlist", "/translate"]
     return normalized not in incomplete_commands
 
 
@@ -629,6 +687,9 @@ def _process_locked(text, chat_id, placeholder_message_id=None):
         elif text.startswith("/music"):
             query = text.replace("/music", "", 1).strip()
             result, sources = run_direct_intent("music", query, chat_id)
+
+        elif text.startswith("/library") or text.startswith("/menu") or text.startswith("/catalog"):
+            result, sources = run_direct_intent("library", "", chat_id)
 
         elif text.startswith("/translate"):
             from app.tools.translate import build_translate_result_menu, translate_language_buttons, translate_payload

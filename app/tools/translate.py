@@ -16,6 +16,14 @@ COMMON_LANGUAGES = [
     ("de", "Alemán"),
     ("it", "Italiano"),
     ("pt", "Portugués"),
+    ("ca", "Catalán"),
+    ("gl", "Gallego"),
+    ("eu", "Euskera"),
+    ("ja", "Japonés"),
+    ("ko", "Coreano"),
+    ("zh", "Chino"),
+    ("ru", "Ruso"),
+    ("ar", "Árabe")
 ]
 
 
