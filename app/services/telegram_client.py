@@ -1,4 +1,5 @@
 import requests
+from itertools import combinations
 from pathlib import Path
 from app.config import TELEGRAM_BOT_TOKEN
 
@@ -161,13 +162,14 @@ def send_photo(chat_id: str, image_url: str, caption: str = None):
         if caption:
             payload["caption"] = caption[:1024]
 
-        requests.post(
+        response = requests.post(
             f"{BASE_URL}/sendPhoto",
             json=payload,
             timeout=10
         )
-    except Exception:
-        pass
+        print("TG PHOTO:", response.status_code, response.text)
+    except Exception as e:
+        print("send_photo error:", e)
 
 
 def send_photo_with_buttons(chat_id: str, image_url: str, caption: str, buttons: list):
@@ -190,9 +192,36 @@ def send_photo_with_buttons(chat_id: str, image_url: str, caption: str, buttons:
         print("send_photo_with_buttons error:", e)
 
 
-def send_images(chat_id, images):
+def _build_media_group(images):
     media = []
+    for image in images:
+        item = {
+            "type": "photo",
+            "media": image["url"]
+        }
+        if image.get("caption"):
+            item["caption"] = image["caption"]
+        media.append(item)
+    return media
+
+
+def _try_send_media_group(chat_id, images):
+    media = _build_media_group(images)
+    response = requests.post(
+        f"{BASE_URL}/sendMediaGroup",
+        json={
+            "chat_id": chat_id,
+            "media": media
+        },
+        timeout=15
+    )
+    print("TG MEDIA GROUP:", response.status_code, response.text)
+    return response
+
+
+def send_images(chat_id, images):
     source_labels = []
+    candidate_images = []
 
     for index, image in enumerate(images[:10]):
         if isinstance(image, dict):
@@ -200,33 +229,35 @@ def send_images(chat_id, images):
             if not image_url:
                 continue
 
-            item = {
-                "type": "photo",
-                "media": image_url
-            }
-
-            if index == 0:
-                caption_parts = []
-                title = image.get("title")
-
-                if title:
-                    caption_parts.append(title[:180])
-
-            media.append(item)
+            candidate_images.append(
+                {
+                    "url": image_url,
+                    "caption": None,
+                    "title": image.get("title"),
+                    "source_domain": image.get("source_domain"),
+                }
+            )
         elif image:
-            media.append({"type": "photo", "media": image})
+            candidate_images.append(
+                {
+                    "url": image,
+                    "caption": None,
+                }
+            )
 
         if isinstance(image, dict):
             domain = image.get("source_domain")
             if domain and domain not in source_labels:
                 source_labels.append(domain)
 
-    if not media:
+    if not candidate_images:
         return
 
-    if isinstance(images[0], dict):
+    selected_images = candidate_images[:6]
+
+    if isinstance(images[0], dict) and selected_images:
         first_caption = []
-        first_title = images[0].get("title")
+        first_title = selected_images[0].get("title") or images[0].get("title")
 
         if first_title:
             first_caption.append(first_title[:180])
@@ -235,19 +266,36 @@ def send_images(chat_id, images):
             first_caption.append("Fuentes: " + " | ".join(source_labels[:3]))
 
         if first_caption:
-            media[0]["caption"] = "\n".join(first_caption)[:1024]
+            caption = "\n".join(first_caption)[:1024]
+            selected_images[0]["caption"] = caption
 
-    try:
-        requests.post(
-            f"{BASE_URL}/sendMediaGroup",
-            json={
-                "chat_id": chat_id,
-                "media": media
-            },
-            timeout=10
-        )
-    except Exception:
-        pass
+    album_attempts = []
+    if len(selected_images) >= 3:
+        album_attempts.append(selected_images[:3])
+
+        for combo in combinations(selected_images, 3):
+            combo_list = list(combo)
+            if combo_list == album_attempts[0]:
+                continue
+            if selected_images[0] in combo_list:
+                combo_list = [selected_images[0]] + [img for img in combo_list if img is not selected_images[0]]
+            album_attempts.append(combo_list)
+    elif selected_images:
+        album_attempts.append(selected_images[:])
+
+    for attempt in album_attempts[:8]:
+        try:
+            response = _try_send_media_group(chat_id, attempt)
+            if response.ok:
+                return
+        except Exception as e:
+            print("send_images media group error:", e)
+
+    for image in selected_images[:3]:
+        try:
+            send_photo(chat_id, image["url"], image.get("caption"))
+        except Exception as e:
+            print("send_images fallback error:", e)
 
 
 def send_video(chat_id: str, video_url: str, caption: str = None):
@@ -287,6 +335,30 @@ def send_local_video(chat_id: str, video_path: str, caption: str = None):
             print("TG LOCAL VIDEO:", response.status_code, response.text)
     except Exception as e:
         print("send_local_video error:", e)
+
+
+def send_local_document(chat_id: str, file_path: str, caption: str = None):
+    try:
+        path = Path(file_path)
+        if not path.exists():
+            print("send_local_document error: file not found", file_path)
+            return
+
+        with path.open("rb") as document_file:
+            response = requests.post(
+                f"{BASE_URL}/sendDocument",
+                data={
+                    "chat_id": chat_id,
+                    "caption": (caption or "")[:1024],
+                },
+                files={
+                    "document": document_file
+                },
+                timeout=120
+            )
+            print("TG LOCAL DOCUMENT:", response.status_code, response.text)
+    except Exception as e:
+        print("send_local_document error:", e)
 
 
 def send_local_audio(chat_id: str, audio_path: str, title: str = None, performer: str = None):

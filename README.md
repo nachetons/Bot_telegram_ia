@@ -22,6 +22,7 @@ Bot de Telegram centrado en Jellyfin, búsqueda web, YouTube, música, traducci�
 - [Rendimiento y optimizaciones](#rendimiento-y-optimizaciones)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Variables de entorno](#variables-de-entorno)
+- [Proxy seguro de Jellyfin](#proxy-seguro-de-jellyfin)
 - [Instalacion](#instalacion)
 - [Dependencias importantes](#dependencias-importantes)
 - [Comandos para BotFather](#comandos-para-botfather)
@@ -432,6 +433,8 @@ Esto acelera bastante:
 - `/music`
 - `/playlist add`
 
+Además, Jellyfin puede funcionar en modo más seguro usando proxy firmado desde tu propio backend, evitando exponer `api_key` y URLs internas al cliente.
+
 <a id="estructura-del-proyecto"></a>
 ## 📁 Estructura del proyecto
 
@@ -483,6 +486,8 @@ TELEGRAM_TOKEN=tu_token
 JELLYFIN_URL=https://tu-jellyfin
 JELLYFIN_API_KEY=tu_api_key
 JELLYFIN_USER_ID=tu_user_id
+APP_BASE_URL=https://tu-dominio-del-bot
+MEDIA_PROXY_SECRET=una_clave_larga_y_aleatoria
 
 # LLM local
 LM_STUDIO_URL=http://localhost:1234/v1/chat/completions
@@ -505,6 +510,41 @@ Valores recomendados para `WHISPER_MODEL_SIZE`:
 - `tiny` si priorizas velocidad
 - `base` como equilibrio general
 - `small` si quieres algo más fino y tu máquina aguanta
+
+<a id="proxy-seguro-de-jellyfin"></a>
+## 🔒 Proxy seguro de Jellyfin
+
+Si no quieres exponer en Telegram:
+
+- el dominio real de Jellyfin
+- la `api_key`
+- o rutas internas del servidor multimedia
+
+puedes activar el proxy seguro del backend.
+
+Qué hace:
+
+- genera URLs firmadas con expiración
+- sirve imágenes y streams a través de tu propio backend
+- reescribe playlists HLS para no filtrar rutas directas de Jellyfin
+
+Variables necesarias:
+
+```env
+APP_BASE_URL=https://tu-dominio-del-bot
+MEDIA_PROXY_SECRET=una_clave_larga_y_aleatoria
+```
+
+Recomendación:
+
+- usa una clave larga y aleatoria en `MEDIA_PROXY_SECRET`
+- apunta `APP_BASE_URL` al dominio público real de tu bot
+- reconstruye el contenedor tras activarlo
+
+Importante:
+
+- si no defines `APP_BASE_URL` y `MEDIA_PROXY_SECRET`, el bot hará fallback al comportamiento directo
+- para un despliegue expuesto a internet, es recomendable activar este proxy
 
 <a id="instalacion"></a>
 ## 🛠️ Instalación

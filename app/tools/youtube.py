@@ -359,7 +359,8 @@ def download_youtube_video(video_id: str):
 
     output_template = str(TEMP_DIR / f"{clean_video_id}-%(title).80s.%(ext)s")
     source_url = _youtube_watch_url(clean_video_id)
-    preferred_height = max(144, int(YOUTUBE_MAX_HEIGHT or 720))
+    preferred_height = int(YOUTUBE_MAX_HEIGHT or 1080)
+    height_filter = f"[height<={preferred_height}]" if preferred_height > 0 else ""
 
     options = {
         "quiet": True,
@@ -367,10 +368,10 @@ def download_youtube_video(video_id: str):
         "noplaylist": True,
         "nocheckcertificate": True,
         "format": (
-            f"bestvideo[height<={preferred_height}][ext=mp4]+bestaudio[ext=m4a]/"
-            f"bestvideo[height<={preferred_height}]+bestaudio/"
-            f"best[height<={preferred_height}][ext=mp4]/"
-            f"best[height<={preferred_height}]/"
+            f"bestvideo{height_filter}[ext=mp4]+bestaudio[ext=m4a]/"
+            f"bestvideo{height_filter}+bestaudio/"
+            f"best{height_filter}[ext=mp4]/"
+            f"best{height_filter}/"
             "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
             "bestvideo+bestaudio/"
             "best[ext=mp4]/best"

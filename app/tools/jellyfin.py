@@ -1,6 +1,10 @@
 import logging
 import re
 import unicodedata
+import base64
+import hashlib
+import hmac
+import time
 from urllib.parse import urlencode
 
 import requests
@@ -26,10 +30,12 @@ def normalize(text: str) -> str:
 class JellyfinTool:
     name = "jellyfin"
 
-    def __init__(self, base_url: str, api_key: str, user_id: str):
+    def __init__(self, base_url: str, api_key: str, user_id: str, public_base_url: str = "", proxy_secret: str = ""):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = (api_key or "").strip()
         self.user_id = (user_id or "").strip()
+        self.public_base_url = (public_base_url or "").rstrip("/")
+        self.proxy_secret = (proxy_secret or "").strip()
 
     def _headers(self):
         return {"X-Emby-Token": self.api_key}
@@ -86,6 +92,72 @@ class JellyfinTool:
 
     def get_all_series(self):
         return self._get_all_items("Series")
+
+    def _sort_seasons(self, items):
+        def season_key(item):
+            season_number = item.get("IndexNumber")
+            sort_name = item.get("SortName") or item.get("Name") or ""
+            return (season_number if season_number is not None else 9999, sort_name.lower())
+
+        return sorted(items or [], key=season_key)
+
+    def _sort_episodes(self, items):
+        def episode_key(item):
+            parent_season = item.get("ParentIndexNumber")
+            episode_number = item.get("IndexNumber")
+            sort_name = item.get("SortName") or item.get("Name") or ""
+            return (
+                parent_season if parent_season is not None else 9999,
+                episode_number if episode_number is not None else 9999,
+                sort_name.lower(),
+            )
+
+        return sorted(items or [], key=episode_key)
+
+    def get_seasons(self, series_id: str):
+        data = self._request_json(
+            f"/Shows/{series_id}/Seasons",
+            params={
+                "UserId": self.user_id,
+            },
+        )
+
+        items = data.get("Items", [])
+        if not items:
+            data = self._request_json(
+                f"/Users/{self.user_id}/Items",
+                params={
+                    "ParentId": series_id,
+                    "IncludeItemTypes": "Season",
+                    "Recursive": "false",
+                    "Limit": PAGE_SIZE,
+                },
+            )
+            items = data.get("Items", [])
+
+        return self._sort_seasons(items)
+
+    def get_series_episodes(self, series_id: str):
+        data = self._request_json(
+            f"/Shows/{series_id}/Episodes",
+            params={
+                "UserId": self.user_id,
+                "Limit": PAGE_SIZE,
+            },
+        )
+        return self._sort_episodes(data.get("Items", []))
+
+    def get_episodes_by_season(self, season_id: str):
+        data = self._request_json(
+            f"/Users/{self.user_id}/Items",
+            params={
+                "ParentId": season_id,
+                "IncludeItemTypes": "Episode",
+                "Recursive": "true",
+                "Limit": PAGE_SIZE,
+            },
+        )
+        return self._sort_episodes(data.get("Items", []))
 
     def get_library(self, limit=20):
         movies = self.get_all_movies()
@@ -242,6 +314,9 @@ class JellyfinTool:
         if not item_id:
             return None
 
+        if self.public_base_url and self.proxy_secret:
+            return self.build_proxy_url(f"/Items/{item_id}/Images/Primary", expires_in=86400)
+
         params = urlencode({"api_key": self.api_key})
         return f"{self.base_url}/Items/{item_id}/Images/Primary?{params}"
 
@@ -260,7 +335,44 @@ class JellyfinTool:
         if media_source and media_source.get("Id"):
             params["MediaSourceId"] = media_source["Id"]
 
-        return f"{self.base_url}/Videos/{item_id}/master.m3u8?{urlencode(params)}"
+        relative_path = f"/Videos/{item_id}/master.m3u8?{urlencode(params)}"
+        if self.public_base_url and self.proxy_secret:
+            return self.build_proxy_url(relative_path, expires_in=7200)
+
+        return f"{self.base_url}{relative_path}"
+
+    def _encode_target(self, relative_path: str):
+        raw = (relative_path or "").encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    def _decode_target(self, encoded_target: str):
+        padding = "=" * (-len(encoded_target) % 4)
+        decoded = base64.urlsafe_b64decode((encoded_target + padding).encode("ascii")).decode("utf-8")
+        if not decoded.startswith("/"):
+            raise ValueError("Invalid proxy target")
+        return decoded
+
+    def _sign_target(self, encoded_target: str, exp: int):
+        payload = f"{encoded_target}:{exp}".encode("utf-8")
+        return hmac.new(self.proxy_secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
+    def build_proxy_url(self, relative_path: str, expires_in: int = 3600):
+        encoded_target = self._encode_target(relative_path)
+        exp = int(time.time()) + max(60, int(expires_in))
+        sig = self._sign_target(encoded_target, exp)
+        return f"{self.public_base_url}/proxy/jellyfin/raw/{encoded_target}?exp={exp}&sig={sig}"
+
+    def verify_proxy_request(self, encoded_target: str, exp: int, sig: str):
+        if not self.proxy_secret:
+            return False
+        if int(exp) < int(time.time()):
+            return False
+
+        expected = self._sign_target(encoded_target, exp)
+        return hmac.compare_digest(expected, sig or "")
+
+    def decode_proxy_target(self, encoded_target: str):
+        return self._decode_target(encoded_target)
 
     def run(self, query: str):
         result = self.search_movie(query)
@@ -301,11 +413,13 @@ class JellyfinTool:
         }
 
 
-from app.config import JELLYFIN_API_KEY, JELLYFIN_URL, JELLYFIN_USER_ID
+from app.config import APP_BASE_URL, JELLYFIN_API_KEY, JELLYFIN_URL, JELLYFIN_USER_ID, MEDIA_PROXY_SECRET
 
 
 jellyfin = JellyfinTool(
     base_url=JELLYFIN_URL,
     api_key=JELLYFIN_API_KEY,
     user_id=JELLYFIN_USER_ID,
+    public_base_url=APP_BASE_URL,
+    proxy_secret=MEDIA_PROXY_SECRET,
 )
