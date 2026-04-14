@@ -155,13 +155,15 @@ def _extract_price(item: dict[str, Any]):
 
     for value in price_fields:
         if isinstance(value, dict):
-            amount = value.get("amount") or value.get("cents")
-            if amount is not None:
-                parsed = _safe_float(amount)
+            if value.get("amount") is not None:
+                parsed = _safe_float(value.get("amount"))
                 if parsed is not None:
-                    if parsed > 10000:
-                        parsed = parsed / 100
                     return parsed, value.get("currency") or "EUR"
+
+            if value.get("cents") is not None:
+                parsed = _safe_float(value.get("cents"))
+                if parsed is not None:
+                    return parsed / 100, value.get("currency") or "EUR"
         else:
             parsed = _safe_float(value)
             if parsed is not None:
@@ -392,6 +394,8 @@ def _filter_items(items, filters):
         url = _extract_url(item)
         if not title or not url:
             continue
+        if price is not None and price <= 0:
+            continue
 
         parsed = {
             "id": item.get("id") or item.get("item_id") or title,
@@ -443,9 +447,7 @@ def _price_label(item):
     return f"{item['price']:.0f}{symbol}"
 
 
-def _build_summary(filters, items):
-    lines = [f"🛒 Wallapop: {filters.get('query', '')}"]
-
+def _collect_active_filters(filters):
     active_filters = []
     if filters.get("condition") and filters.get("condition") != "any":
         active_filters.append(CONDITION_LABELS.get(filters["condition"], filters["condition"]))
@@ -459,7 +461,13 @@ def _build_summary(filters, items):
             active_filters.append(filters["location_label"])
     if filters.get("order"):
         active_filters.append(ORDER_LABELS.get(filters["order"], filters["order"]))
+    return active_filters
 
+
+def _build_summary(filters, items):
+    lines = [f"🛒 Wallapop: {filters.get('query', '')}"]
+
+    active_filters = _collect_active_filters(filters)
     if active_filters:
         lines.append("Filtros: " + " | ".join(active_filters))
 
@@ -471,20 +479,7 @@ def _build_summary(filters, items):
 
 
 def _build_filters_summary(filters):
-    active_filters = []
-    if filters.get("condition") and filters.get("condition") != "any":
-        active_filters.append(CONDITION_LABELS.get(filters["condition"], filters["condition"]))
-    if filters.get("min_price") is not None or filters.get("max_price") is not None:
-        active_filters.append(f"{filters.get('min_price', 0) or 0}€ - {filters.get('max_price', '∞')}€")
-    if filters.get("location_label"):
-        radius = filters.get("distance_km")
-        if radius:
-            active_filters.append(f"{filters['location_label']} ({radius} km)")
-        else:
-            active_filters.append(filters["location_label"])
-    if filters.get("order"):
-        active_filters.append(ORDER_LABELS.get(filters["order"], filters["order"]))
-    return " | ".join(active_filters)
+    return " | ".join(_collect_active_filters(filters))
 
 
 def build_wallapop_search_url(filters):
@@ -513,20 +508,7 @@ def _fallback_result(filters, message=None):
         "No he podido leer resultados directamente desde Wallapop ahora mismo.",
     ]
 
-    active_filters = []
-    if filters.get("condition") and filters.get("condition") != "any":
-        active_filters.append(CONDITION_LABELS.get(filters["condition"], filters["condition"]))
-    if filters.get("min_price") is not None or filters.get("max_price") is not None:
-        active_filters.append(f"{filters.get('min_price', 0) or 0}€ - {filters.get('max_price', '∞')}€")
-    if filters.get("location_label"):
-        radius = filters.get("distance_km")
-        if radius:
-            active_filters.append(f"{filters['location_label']} ({radius} km)")
-        else:
-            active_filters.append(filters["location_label"])
-    if filters.get("order"):
-        active_filters.append(ORDER_LABELS.get(filters["order"], filters["order"]))
-
+    active_filters = _collect_active_filters(filters)
     if active_filters:
         text_lines.append("Filtros preparados: " + " | ".join(active_filters))
     if message:
