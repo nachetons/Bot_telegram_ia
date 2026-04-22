@@ -8,8 +8,10 @@ from app.core.chat_state import (
 )
 from app.core.direct_intents import run_direct_intent
 from app.core.playlist_flow import handle_playlist_command
+from app.tools.wallapop_alerts import get_alert_for_chat
 from app.utils.bot_ui import helper_message, start_message
 from app.utils.wallapop_ui import (
+    wallapop_alerts_menu,
     wallapop_condition_buttons,
     wallapop_radius_buttons,
     wallapop_order_buttons,
@@ -97,6 +99,9 @@ def handle_slash_command(text: str, chat_id):
 
         set_wallapop_session(chat_id, session)
         return True, "¿Qué producto quieres buscar en Wallapop?", ["wallapop_tool"]
+
+    if text.startswith("/mis_alertas"):
+        return True, wallapop_alerts_menu(get_alert_for_chat(chat_id)), ["wallapop_tool"]
 
     if text.startswith("/library") or text.startswith("/menu") or text.startswith("/catalog"):
         return True, *run_direct_intent("library", "", chat_id)

@@ -1,9 +1,17 @@
 from datetime import datetime
+from difflib import SequenceMatcher
 import re
 import unicodedata
+from zoneinfo import ZoneInfo
+
+from app.config import APP_TIMEZONE
+from app.tools.wallapop_alerts import infer_alert_timezone
 
 
 WALLAPOP_UI_PAGE_SIZE = 8
+WALLAPOP_INSIGHT_MIN_SIMILARITY = 0.62
+WALLAPOP_INSIGHT_MIN_COMPARABLES = 2
+_wallapop_ui_timezone = ZoneInfo(APP_TIMEZONE)
 
 
 def wallapop_condition_buttons():
@@ -56,6 +64,33 @@ def wallapop_order_buttons():
     ]
 
 
+def wallapop_price_skip_buttons():
+    return [
+        [
+            {"text": "⏭ Sin precio", "callback_data": "wallapop_price:skip"},
+        ],
+    ]
+
+
+def wallapop_location_skip_buttons():
+    return [
+        [
+            {"text": "⏭ Sin ubicación", "callback_data": "wallapop_location:skip"},
+        ],
+    ]
+
+
+def wallapop_alert_reuse_buttons():
+    return [
+        [
+            {"text": "✅ Sí, reutilizarlos", "callback_data": "wallapop_alert_reuse:yes"},
+        ],
+        [
+            {"text": "🔎 No, solo el producto", "callback_data": "wallapop_alert_reuse:no"},
+        ],
+    ]
+
+
 def wallapop_total_loaded_pages(result_session):
     loaded_items = len(result_session.get("loaded_items", []))
     if loaded_items <= 0:
@@ -95,6 +130,33 @@ def _wallapop_tokenize(value):
     return normalized.split() if normalized else []
 
 
+def _wallapop_significant_tokens(tokens):
+    return {
+        token for token in tokens
+        if len(token) >= 3 or any(ch.isdigit() for ch in token)
+    }
+
+
+def _wallapop_comparable_title_tokens(title, query_tokens):
+    title_tokens = _wallapop_tokenize(title)
+    significant_tokens = _wallapop_significant_tokens(title_tokens)
+    generic_tokens = set(query_tokens)
+    noisy_tokens = {
+        "nuevo", "nueva", "nuevos", "nuevas",
+        "usado", "usada", "usados", "usadas",
+        "caja", "precintado", "precintada",
+        "garantia", "envio",
+    }
+    specific_tokens = significant_tokens - generic_tokens - noisy_tokens
+    numeric_tokens = {token for token in title_tokens if any(ch.isdigit() for ch in token)}
+    return {
+        "all": significant_tokens,
+        "specific": specific_tokens,
+        "numeric": numeric_tokens,
+        "normalized": _wallapop_normalize_text(title),
+    }
+
+
 def _wallapop_price_insight(item, result_session):
     price = item.get("price")
     if price is None:
@@ -102,8 +164,7 @@ def _wallapop_price_insight(item, result_session):
 
     loaded_items = result_session.get("loaded_items", [])
     query_tokens = _wallapop_tokenize(result_session.get("filters", {}).get("query", ""))
-    item_tokens = set(_wallapop_tokenize(item.get("title", "")))
-    numeric_query_tokens = [token for token in query_tokens if any(ch.isdigit() for ch in token)]
+    item_title_profile = _wallapop_comparable_title_tokens(item.get("title", ""), query_tokens)
 
     comparable_prices = []
     for candidate in loaded_items:
@@ -112,18 +173,33 @@ def _wallapop_price_insight(item, result_session):
             continue
         if candidate.get("id") == item.get("id"):
             continue
-        if candidate.get("similarity_score", 0) < 0.72:
+        if candidate.get("similarity_score", 0) < WALLAPOP_INSIGHT_MIN_SIMILARITY:
             continue
 
-        candidate_tokens = set(_wallapop_tokenize(candidate.get("title", "")))
-        if numeric_query_tokens and not all(token in candidate_tokens for token in numeric_query_tokens):
+        candidate_title_profile = _wallapop_comparable_title_tokens(candidate.get("title", ""), query_tokens)
+        if not candidate_title_profile["all"]:
             continue
-        if numeric_query_tokens and not all(token in item_tokens for token in numeric_query_tokens):
+
+        if item_title_profile["numeric"] and not (
+            item_title_profile["numeric"] & candidate_title_profile["numeric"]
+        ):
             continue
+
+        if item_title_profile["specific"]:
+            if not (item_title_profile["specific"] & candidate_title_profile["specific"]):
+                continue
+        else:
+            title_similarity = SequenceMatcher(
+                None,
+                item_title_profile["normalized"],
+                candidate_title_profile["normalized"],
+            ).ratio()
+            if title_similarity < 0.58:
+                continue
 
         comparable_prices.append(float(candidate_price))
 
-    if len(comparable_prices) < 2:
+    if len(comparable_prices) < WALLAPOP_INSIGHT_MIN_COMPARABLES:
         return None
 
     comparable_prices.sort()
@@ -192,6 +268,26 @@ def _wallapop_format_datetime(label):
     return label
 
 
+def _wallapop_format_alert_datetime(value, timezone_name=None):
+    if not value:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except Exception:
+        return str(value)
+
+    try:
+        target_timezone = ZoneInfo(timezone_name or APP_TIMEZONE)
+    except Exception:
+        target_timezone = _wallapop_ui_timezone
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=target_timezone)
+    else:
+        parsed = parsed.astimezone(target_timezone)
+    return parsed.strftime("%d/%m/%Y %H:%M")
+
+
 def _wallapop_format_age(timestamp_ms):
     try:
         published_at = datetime.fromtimestamp(float(timestamp_ms) / 1000)
@@ -217,6 +313,63 @@ def _wallapop_trim_button(text, limit=52):
     return value[: limit - 1].rstrip() + "…"
 
 
+def _wallapop_condition_badge(condition):
+    return {
+        "new": "🆕",
+        "as_good_as_new": "✨",
+        "in_box": "📦",
+        "good": "♻️",
+        "used": "♻️",
+    }.get(condition or "")
+
+
+def _wallapop_listing_badges(item, result_session):
+    badges = []
+    filters = result_session.get("filters", {})
+
+    if item.get("reserved"):
+        badges.append("⛔")
+
+    price_insight = _wallapop_price_insight(item, result_session)
+    if price_insight:
+        label = price_insight.get("label", "")
+        if label.startswith("🟢"):
+            badges.append("🟢")
+        elif label.startswith("🟡"):
+            badges.append("🟡")
+        elif label.startswith("🔴"):
+            badges.append("🔴")
+
+    if filters.get("condition") == "any":
+        condition_badge = _wallapop_condition_badge(item.get("condition"))
+        if condition_badge:
+            badges.append(condition_badge)
+    else:
+        badges.append("🚚" if item.get("shipping") else "🚫")
+
+    return "".join(badges)
+
+
+def _wallapop_listing_button_text(index, item, result_session):
+    title = (item.get("title") or "Producto").strip()
+    location = (item.get("location") or "").strip()
+    shipping = item.get("shipping")
+    badges = _wallapop_listing_badges(item, result_session)
+    price = _wallapop_format_price(item)
+
+    head_parts = [f"{index}.", price]
+    if badges:
+        head_parts.append(badges)
+
+    tail_parts = [title]
+    if location and not shipping:
+        tail_parts.append(location)
+
+    body = " ".join(head_parts)
+    tail = " · ".join(tail_parts)
+    return _wallapop_trim_button(f"{body} · {tail}", limit=58)
+
+
 def wallapop_results_menu(result_session):
     filters = result_session.get("filters", {})
     search_url = result_session.get("search_url")
@@ -235,12 +388,9 @@ def wallapop_results_menu(result_session):
 
     buttons = []
     for index, item in enumerate(items, start=start + 1):
-        location = item.get("location") or "Sin ubicación"
         buttons.append([
             {
-                "text": _wallapop_trim_button(
-                    f"{index}. {_wallapop_format_price(item)} | {item.get('title', '')} | {location}"
-                ),
+                "text": _wallapop_listing_button_text(index, item, result_session),
                 "callback_data": f"wallapop_item:{index - 1}",
             }
         ])
@@ -256,6 +406,7 @@ def wallapop_results_menu(result_session):
     if nav_buttons:
         buttons.append(nav_buttons)
 
+    buttons.append([{"text": "🔔 Crear alerta", "callback_data": "wallapop_alert_create"}])
     buttons.append([{"text": "🔎 Buscar otro producto", "callback_data": "wallapop_new_search"}])
 
     if search_url:
@@ -268,11 +419,72 @@ def wallapop_results_menu(result_session):
     }
 
 
+def wallapop_alerts_menu(alert, status_message=None):
+    if not alert:
+        return {
+            "type": "text",
+            "text": "No tienes alertas activas de Wallapop.",
+        }
+
+    filters = alert.get("filters", {})
+    lines = [
+        "🔔 Tu alerta de Wallapop",
+        f"Producto: {alert.get('query', '')}",
+        f"Precio máximo: {int(alert.get('max_price', 0))}€",
+        "Modo: Reutilizando filtros" if alert.get("reuse_filters") else "Modo: Solo producto",
+    ]
+    timezone_name = alert.get("timezone") or infer_alert_timezone(filters)
+    lines.append(f"Zona horaria: {timezone_name}")
+
+    if alert.get("reuse_filters"):
+        if filters.get("condition") and filters.get("condition") != "any":
+            labels = {
+                "new": "🆕 Nuevo",
+                "as_good_as_new": "✨ Como nuevo",
+                "in_box": "📦 En su caja",
+                "good": "♻️ Buen estado",
+                "used": "♻️ Usado",
+            }
+            lines.append(f"Estado: {labels.get(filters['condition'], filters['condition'])}")
+        if filters.get("location_label"):
+            radius = filters.get("distance_km")
+            location_text = filters["location_label"]
+            if radius:
+                location_text += f" ({radius} km)"
+            lines.append(f"Zona: {location_text}")
+
+    next_check_at = alert.get("next_check_at")
+    if next_check_at:
+        lines.append(f"Próxima revisión: {_wallapop_format_alert_datetime(next_check_at, timezone_name)}")
+
+    last_check_at = alert.get("last_check_at")
+    if last_check_at:
+        lines.append(f"Última revisión: {_wallapop_format_alert_datetime(last_check_at, timezone_name)}")
+
+    if status_message:
+        lines.append("")
+        lines.append(status_message)
+
+    buttons = [
+        #[{"text": "🧪 Probar ahora", "callback_data": "wallapop_alert_test"}],
+        [{"text": "🗑 Borrar alerta", "callback_data": "wallapop_alert_delete"}],
+    ]
+
+    return {
+        "type": "menu",
+        "text": "\n".join(lines),
+        "buttons": buttons,
+    }
+
+
 def wallapop_item_caption(item, result_session=None):
     lines = [
         f"🛒 {item.get('title', 'Artículo')}",
         f"💸 {_wallapop_format_price(item)}",
     ]
+
+    if item.get("reserved"):
+        lines.append("⛔ RESERVADO")
 
     location_parts = [part for part in [item.get("location"), item.get("region")] if part]
     if location_parts:
@@ -280,13 +492,13 @@ def wallapop_item_caption(item, result_session=None):
 
     if item.get("condition"):
         condition_labels = {
-            "new": "Nuevo",
-            "as_good_as_new": "Como nuevo",
-            "in_box": "En su caja",
-            "good": "Buen estado",
-            "used": "Usado",
+            "new": "🆕 Nuevo",
+            "as_good_as_new": "✨ Como nuevo",
+            "in_box": "📦 En su caja",
+            "good": "♻️ Buen estado",
+            "used": "♻️ Usado",
         }
-        lines.append(f"📦 {condition_labels.get(item['condition'], item['condition'])}")
+        lines.append(condition_labels.get(item["condition"], str(item["condition"])))
 
     created_label = _wallapop_format_datetime(item.get("created_label"))
     age_label = _wallapop_format_age(item.get("created_at"))
@@ -309,8 +521,6 @@ def wallapop_item_caption(item, result_session=None):
     extra_flags = []
     if item.get("shipping"):
         extra_flags.append("Envío")
-    if item.get("reserved"):
-        extra_flags.append("Reservado")
     if item.get("has_warranty"):
         extra_flags.append("Garantía")
     if item.get("is_refurbished"):

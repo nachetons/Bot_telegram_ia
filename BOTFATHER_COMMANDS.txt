@@ -12,3 +12,4 @@ youtube - buscar y enviar un video de YouTube
 music - buscar y enviar audio de musica
 translate - traducir texto entre idiomas
 playlist - gestionar playlists locales
+wallapop - busquedas de articulos

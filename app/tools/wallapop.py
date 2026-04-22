@@ -237,19 +237,33 @@ def _extract_condition(item: dict[str, Any]):
         item.get("condition"),
         item.get("item_condition"),
         item.get("status"),
+        item.get("title"),
+        item.get("name"),
+        item.get("description"),
     ]
 
     for candidate in candidates:
-        if candidate:
-            lowered = str(candidate).lower()
-            if "as_good_as_new" in lowered:
-                return "as_good_as_new"
-            if "in_box" in lowered:
-                return "in_box"
-            if "good" in lowered:
-                return "good"
-            if "new" in lowered or "nuevo" in lowered:
-                return "new"
+        if not candidate:
+            continue
+
+        lowered = str(candidate).lower()
+        if "as_good_as_new" in lowered:
+            return "as_good_as_new"
+        if "in_box" in lowered:
+            return "in_box"
+        if "good" in lowered:
+            return "good"
+        if "como nuevo" in lowered:
+            return "as_good_as_new"
+        if "en su caja" in lowered or "precintado" in lowered or "sin abrir" in lowered:
+            return "in_box"
+        if "buen estado" in lowered:
+            return "good"
+        if "new" in lowered or "nuevo" in lowered:
+            return "new"
+        if "nuevos" in lowered or "nueva" in lowered or "nuevas" in lowered:
+            return "new"
+        if "usado" in lowered or "usada" in lowered or "usados" in lowered or "usadas" in lowered:
             return "used"
 
     return "used"
@@ -288,11 +302,22 @@ def _extract_flag(item: dict[str, Any], field_name: str):
 def _extract_shipping(item: dict[str, Any]):
     shipping = item.get("shipping")
     if isinstance(shipping, dict):
-        return bool(
-            shipping.get("item_is_shippable")
-            or shipping.get("user_allows_shipping")
-            or shipping.get("allow_shipping")
-        )
+        explicit_keys = [
+            "item_is_shippable",
+            "allow_shipping",
+            "is_shippable",
+            "enabled",
+        ]
+        for key in explicit_keys:
+            value = shipping.get(key)
+            if value is not None:
+                return bool(value)
+
+        methods = shipping.get("methods") or shipping.get("available_methods")
+        if isinstance(methods, list):
+            return len(methods) > 0
+
+        return False
     return bool(shipping)
 
 
@@ -565,7 +590,7 @@ def search_wallapop(filters, next_page_token=None):
     if not query:
         return {"error": "Necesito un producto para buscar en Wallapop."}
 
-    if filters.get("location_label"):
+    if filters.get("location_label") and not (filters.get("latitude") and filters.get("longitude")):
         geo = geocode_location(filters["location_label"])
         if geo:
             filters["latitude"] = geo["lat"]

@@ -13,6 +13,10 @@ wallapop_sessions = {}
 wallapop_sessions_lock = threading.Lock()
 wallapop_result_sessions = {}
 wallapop_result_sessions_lock = threading.Lock()
+wallapop_item_messages = {}
+wallapop_item_messages_lock = threading.Lock()
+wallapop_alert_sessions = {}
+wallapop_alert_sessions_lock = threading.Lock()
 
 
 def set_pending_followup(chat_id, intent):
@@ -94,6 +98,36 @@ def get_wallapop_result_session(chat_id):
 def clear_wallapop_result_session(chat_id):
     with wallapop_result_sessions_lock:
         wallapop_result_sessions.pop(chat_id, None)
+
+
+def set_wallapop_item_message(chat_id, payload):
+    with wallapop_item_messages_lock:
+        wallapop_item_messages[chat_id] = payload
+
+
+def get_wallapop_item_message(chat_id):
+    with wallapop_item_messages_lock:
+        return wallapop_item_messages.get(chat_id)
+
+
+def clear_wallapop_item_message(chat_id):
+    with wallapop_item_messages_lock:
+        wallapop_item_messages.pop(chat_id, None)
+
+
+def set_wallapop_alert_session(chat_id, payload):
+    with wallapop_alert_sessions_lock:
+        wallapop_alert_sessions[chat_id] = payload
+
+
+def get_wallapop_alert_session(chat_id):
+    with wallapop_alert_sessions_lock:
+        return wallapop_alert_sessions.get(chat_id)
+
+
+def clear_wallapop_alert_session(chat_id):
+    with wallapop_alert_sessions_lock:
+        wallapop_alert_sessions.pop(chat_id, None)
 
 
 def set_translate_result(chat_id, payload):

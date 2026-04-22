@@ -11,6 +11,8 @@ import requests
 from app.services.agent import agent
 from app.services.telegram_client import (
     send_message,
+    send_message_with_reply_keyboard,
+    remove_reply_keyboard,
     send_local_audio,
     send_local_document,
     send_photo,
@@ -23,6 +25,7 @@ from app.services.telegram_client import (
     edit_message_with_buttons,
     delete_message,
     send_message_with_buttons,
+    edit_photo_with_buttons,
     answer_callback_query,
 )
 from app.config import YOUTUBE_SEND_AS_DOCUMENT
@@ -37,11 +40,15 @@ from app.core.chat_state import (
     clear_playlist_session,
     clear_translate_session,
     clear_translate_result,
+    clear_wallapop_alert_session,
+    clear_wallapop_item_message,
     clear_wallapop_result_session,
     clear_wallapop_session,
     get_playlist_session,
     get_translate_result,
     get_translate_session,
+    get_wallapop_alert_session,
+    get_wallapop_item_message,
     get_wallapop_result_session,
     get_wallapop_session,
     pop_pending_followup,
@@ -49,9 +56,13 @@ from app.core.chat_state import (
     set_playlist_session,
     set_translate_result,
     set_translate_session,
+    set_wallapop_alert_session,
+    set_wallapop_item_message,
     set_wallapop_result_session,
     set_wallapop_session,
 )
+from app.tools.wallapop_alerts import create_or_replace_alert, delete_alert, get_alert_for_chat
+from app.core.wallapop_alert_worker import run_wallapop_alert_test
 from app.utils.playlist_ui import (
     coerce_playlist_feedback,
     playlist_manage_menu,
@@ -59,11 +70,15 @@ from app.utils.playlist_ui import (
 )
 from app.utils.wallapop_ui import (
     WALLAPOP_UI_PAGE_SIZE,
+    wallapop_alert_reuse_buttons,
+    wallapop_alerts_menu,
     wallapop_apply_order,
     wallapop_build_result_session,
     wallapop_condition_buttons,
     wallapop_item_caption,
+    wallapop_location_skip_buttons,
     wallapop_order_buttons,
+    wallapop_price_skip_buttons,
     wallapop_radius_buttons,
     wallapop_results_menu,
     wallapop_total_loaded_pages,
@@ -206,13 +221,29 @@ def _send_jellyfin_video_response(chat_id, title, image, item_id, audio_tracks):
         send_message_with_buttons(chat_id, caption, buttons)
 
 
+def _send_wallapop_location_prompt(chat_id, placeholder_message_id=None, stop_placeholder=None):
+    prompt = (
+        "Indica una localidad para buscar cerca,\n"
+        "o usa el teclado para compartir tu ubicación o hacer skip."
+    )
+    clear_placeholder(chat_id, placeholder_message_id, stop_placeholder)
+    send_message_with_reply_keyboard(
+        chat_id,
+        prompt,
+        [
+            [{"text": "📍 Usar mi ubicación", "request_location": True}],
+            [{"text": "⏭ Skip"}],
+        ],
+    )
+
+
 def _needs_placeholder(text):
     normalized = (text or "").strip()
 
     if not normalized:
         return False
 
-    incomplete_commands = ["/start", "/helper", "/library", "/menu", "/catalog", "/wiki", "/img", "/image", "/video", "/tiempo", "/weather", "/youtube", "/music", "/playlist", "/translate", "/wallapop"]
+    incomplete_commands = ["/start", "/helper", "/library", "/menu", "/catalog", "/wiki", "/img", "/image", "/video", "/tiempo", "/weather", "/youtube", "/music", "/playlist", "/translate", "/wallapop", "/mis_alertas"]
     return normalized not in incomplete_commands
 
 
@@ -262,13 +293,16 @@ def _process_locked(text, chat_id, placeholder_message_id=None):
         text = (text or "").strip()
         pending_intent = None
         playlist_session = None
+        wallapop_alert_session = None
 
         if text.startswith("/"):
             clear_base_chat_state(chat_id)
+            clear_wallapop_alert_session(chat_id)
             clear_wallapop_session(chat_id)
         else:
             pending_intent = pop_pending_followup(chat_id)
             playlist_session = get_playlist_session(chat_id)
+            wallapop_alert_session = get_wallapop_alert_session(chat_id)
 
         if playlist_session and not text.startswith("/"):
             from app.tools.music_local import playlist_add
@@ -337,13 +371,13 @@ def _process_locked(text, chat_id, placeholder_message_id=None):
                         return
                 session["step"] = "await_location"
                 set_wallapop_session(chat_id, session)
-                result = (
-                    "Indica una localidad para buscar cerca, o escribe `skip` si no quieres filtrar por ubicación."
-                )
-                sources = ["wallapop_tool"]
+                _send_wallapop_location_prompt(chat_id, placeholder_message_id, stop_placeholder)
+                return
             elif step == "await_location":
                 lowered = text.strip().lower()
-                if lowered in {"skip", "saltar", "omitir"}:
+                normalized_skip = lowered.replace("⏭", "").strip()
+                remove_reply_keyboard(chat_id)
+                if normalized_skip in {"skip", "saltar", "omitir"}:
                     session["location_label"] = ""
                     session["distance_km"] = None
                     session["step"] = "await_order"
@@ -362,6 +396,51 @@ def _process_locked(text, chat_id, placeholder_message_id=None):
                         "text": f"Ubicación: {session['location_label']}\n\n¿Qué radio quieres usar?",
                         "buttons": wallapop_radius_buttons(),
                     }
+                sources = ["wallapop_tool"]
+
+        elif wallapop_alert_session and not text.startswith("/"):
+            if wallapop_alert_session.get("step") == "await_max_price":
+                try:
+                    max_price = int(float(text.replace("€", "").strip()))
+                except ValueError:
+                    result = "No entendí el precio máximo de la alerta. Escribe un número como `50` o `1200`."
+                    sources = ["wallapop_tool"]
+                    logger.info(f"🧠 RESULT: {result}")
+                    finalize_text_response(chat_id, result, placeholder_message_id, stop_placeholder)
+                    return
+
+                existing_alert = get_alert_for_chat(chat_id)
+                if existing_alert:
+                    clear_wallapop_alert_session(chat_id)
+                    result = "Ya tienes una alerta activa. Usa /mis_alertas para borrarla antes de crear otra."
+                    sources = ["wallapop_tool"]
+                    logger.info(f"🧠 RESULT: {result}")
+                    finalize_text_response(chat_id, result, placeholder_message_id, stop_placeholder)
+                    return
+
+                result_session = get_wallapop_result_session(chat_id) or {}
+                alert = create_or_replace_alert(
+                    chat_id,
+                    wallapop_alert_session.get("filters", {}),
+                    wallapop_alert_session.get("reuse_filters", True),
+                    max_price,
+                    seen_items=result_session.get("loaded_items", []),
+                )
+                clear_wallapop_alert_session(chat_id)
+
+                source_message_id = wallapop_alert_session.get("source_message_id")
+                if source_message_id and result_session:
+                    menu = wallapop_results_menu(result_session)
+                    edit_message_with_buttons(chat_id, source_message_id, menu["text"], menu["buttons"])
+
+                if isinstance(alert, dict) and alert.get("error"):
+                    result = alert["error"]
+                else:
+                    result = (
+                        f"🔔 Alerta creada para '{alert.get('query', '')}' por un máximo de {int(alert.get('max_price', 0))}€.\n"
+                        "Solo avisaré de anuncios nuevos a partir de ahora.\n"
+                        "Puedes verla o borrarla con /mis_alertas."
+                    )
                 sources = ["wallapop_tool"]
 
         elif pending_intent:
@@ -550,9 +629,11 @@ async def webhook(req: Request):
     # MESSAGE
     # -----------------------
     if "message" in data:
-        text = data["message"].get("text")
-        chat_id = data["message"]["chat"]["id"]
-        voice = data["message"].get("voice")
+        message = data["message"]
+        text = message.get("text")
+        chat_id = message["chat"]["id"]
+        voice = message.get("voice")
+        location = message.get("location")
 
         if voice and chat_id:
             translate_session = get_translate_session(chat_id)
@@ -575,6 +656,22 @@ async def webhook(req: Request):
 
             send_message(chat_id, "Si quieres traducir una nota de voz, usa primero /translate y luego envíamela.")
             return {"ok": True}
+
+        if location and chat_id:
+            wallapop_session = get_wallapop_session(chat_id)
+            if wallapop_session and wallapop_session.get("step") == "await_location":
+                remove_reply_keyboard(chat_id)
+                wallapop_session["latitude"] = location.get("latitude")
+                wallapop_session["longitude"] = location.get("longitude")
+                wallapop_session["location_label"] = "Mi ubicación"
+                wallapop_session["step"] = "await_radius"
+                set_wallapop_session(chat_id, wallapop_session)
+                send_message_with_buttons(
+                    chat_id,
+                    "Ubicación recibida.\n\n¿Qué radio quieres usar?",
+                    wallapop_radius_buttons(),
+                )
+                return {"ok": True}
 
 
     # -----------------------
@@ -747,13 +844,44 @@ async def webhook(req: Request):
             session["condition"] = callback_data.split(":", 1)[1]
             session["step"] = "await_price"
             set_wallapop_session(chat_id, session)
-            edit_message(
+            edit_message_with_buttons(
                 chat_id,
                 callback_message_id,
                 (
                     "Indica un rango de precio como `50-200`, o un máximo como `300`.\n"
-                    "Si no quieres filtro de precio, escribe `skip`."
+                    "Si no quieres filtro de precio, escribe `skip` o pulsa el botón."
                 ),
+                wallapop_price_skip_buttons(),
+            )
+            return {"ok": True}
+
+        if callback_data.startswith("wallapop_price:"):
+            answer_callback_query(callback["id"])
+            session = get_wallapop_session(chat_id) or {}
+            session["min_price"] = None
+            session["max_price"] = None
+            session["step"] = "await_location"
+            set_wallapop_session(chat_id, session)
+            edit_message(
+                chat_id,
+                callback_message_id,
+                "Indica una localidad para buscar cerca.",
+            )
+            _send_wallapop_location_prompt(chat_id)
+            return {"ok": True}
+
+        if callback_data.startswith("wallapop_location:"):
+            answer_callback_query(callback["id"])
+            session = get_wallapop_session(chat_id) or {}
+            session["location_label"] = ""
+            session["distance_km"] = None
+            session["step"] = "await_order"
+            set_wallapop_session(chat_id, session)
+            edit_message_with_buttons(
+                chat_id,
+                callback_message_id,
+                "¿Cómo quieres ordenar los resultados?",
+                wallapop_order_buttons(),
             )
             return {"ok": True}
 
@@ -792,12 +920,128 @@ async def webhook(req: Request):
                     menu["text"],
                     menu["buttons"],
                 )
+            elif isinstance(result, dict) and result.get("type") == "wallapop":
+                if result.get("buttons"):
+                    edit_message_with_buttons(
+                        chat_id,
+                        callback_message_id,
+                        result.get("text", "No pude obtener resultados de Wallapop."),
+                        result.get("buttons", []),
+                    )
+                else:
+                    edit_message(
+                        chat_id,
+                        callback_message_id,
+                        result.get("text", "No pude obtener resultados de Wallapop."),
+                    )
             else:
                 edit_message(
                     chat_id,
                     callback_message_id,
                     str(result.get("error") if isinstance(result, dict) else result),
                 )
+            return {"ok": True}
+
+        if callback_data == "wallapop_alert_create":
+            answer_callback_query(callback["id"])
+            existing_alert = get_alert_for_chat(chat_id)
+            if existing_alert:
+                edit_message(
+                    chat_id,
+                    callback_message_id,
+                    "Ya tienes una alerta activa. Usa /mis_alertas para borrarla antes de crear otra.",
+                )
+                return {"ok": True}
+
+            result_session = get_wallapop_result_session(chat_id)
+            if not result_session:
+                edit_message(chat_id, callback_message_id, "No tengo una búsqueda reciente de Wallapop.")
+                return {"ok": True}
+
+            edit_message_with_buttons(
+                chat_id,
+                callback_message_id,
+                "¿Quieres reutilizar los filtros de esta búsqueda para la alerta?",
+                wallapop_alert_reuse_buttons(),
+            )
+            return {"ok": True}
+
+        if callback_data.startswith("wallapop_alert_reuse:"):
+            answer_callback_query(callback["id"])
+            result_session = get_wallapop_result_session(chat_id)
+            if not result_session:
+                edit_message(chat_id, callback_message_id, "No tengo una búsqueda reciente de Wallapop.")
+                return {"ok": True}
+
+            reuse_filters = callback_data.split(":", 1)[1] == "yes"
+            base_filters = dict(result_session.get("filters", {}))
+            if not reuse_filters:
+                base_filters = {
+                    "query": base_filters.get("query", ""),
+                    "condition": "any",
+                    "min_price": None,
+                    "max_price": None,
+                    "location_label": "",
+                    "distance_km": None,
+                    "latitude": None,
+                    "longitude": None,
+                    "category_id": base_filters.get("category_id"),
+                    "order": "newest",
+                }
+
+            set_wallapop_alert_session(
+                chat_id,
+                {
+                    "step": "await_max_price",
+                    "reuse_filters": reuse_filters,
+                    "filters": base_filters,
+                    "source_message_id": callback_message_id,
+                },
+            )
+            edit_message(
+                chat_id,
+                callback_message_id,
+                "¿Qué precio máximo quieres para esta alerta? Escribe solo el número, por ejemplo `120` o `850`.",
+            )
+            return {"ok": True}
+
+        if callback_data == "wallapop_alert_delete":
+            answer_callback_query(callback["id"])
+            deleted = delete_alert(chat_id)
+            clear_wallapop_alert_session(chat_id)
+            if deleted:
+                edit_message(chat_id, callback_message_id, "La alerta de Wallapop se ha borrado.")
+            else:
+                edit_message(chat_id, callback_message_id, "No encontré ninguna alerta activa para borrar.")
+            return {"ok": True}
+
+        if callback_data == "wallapop_alert_test":
+            answer_callback_query(callback["id"], "Probando alerta...")
+            test_result = run_wallapop_alert_test(chat_id)
+            updated_alert = get_alert_for_chat(chat_id)
+
+            if not updated_alert:
+                edit_message(chat_id, callback_message_id, "No encontré ninguna alerta activa.")
+                return {"ok": True}
+
+            if not test_result.get("ok"):
+                if test_result.get("error") == "invalid_result":
+                    status_message = "Última prueba: no pude obtener resultados válidos ahora mismo."
+                else:
+                    status_message = "Última prueba: no se pudo completar."
+            else:
+                new_count = test_result.get("new_count", 0)
+                current_count = test_result.get("current_count", 0)
+                if new_count > 0:
+                    suffix = "se envió aviso" if new_count == 1 else "se enviaron avisos"
+                    status_message = f"Última prueba: encontré {new_count} artículo(s) nuevo(s) y {suffix}."
+                elif current_count > 0:
+                    status_message = f"Última prueba: no hay artículos nuevos ahora mismo. La búsqueda actual devolvió {current_count} resultado(s)."
+                else:
+                    status_message = "Última prueba: no encontré resultados ahora mismo."
+
+            menu = wallapop_alerts_menu(updated_alert, status_message=status_message)
+            edit_message_with_buttons(chat_id, callback_message_id, menu["text"], menu["buttons"])
             return {"ok": True}
 
         if callback_data.startswith("wallapop_page:"):
@@ -843,6 +1087,10 @@ async def webhook(req: Request):
         if callback_data == "wallapop_new_search":
             answer_callback_query(callback["id"])
             clear_wallapop_result_session(chat_id)
+            existing_item_message = get_wallapop_item_message(chat_id)
+            if existing_item_message and existing_item_message.get("message_id"):
+                delete_message(chat_id, existing_item_message["message_id"])
+            clear_wallapop_item_message(chat_id)
             set_wallapop_session(
                 chat_id,
                 {
@@ -885,10 +1133,48 @@ async def webhook(req: Request):
             buttons = [[{"text": "🔗 Abrir anuncio", "url": item.get("url")}]]
             image = item.get("image")
             caption = wallapop_item_caption(item, result_session)
-            if image:
-                send_photo_with_buttons(chat_id, image, caption, buttons)
-            else:
-                send_message_with_buttons(chat_id, caption, buttons)
+            existing_item_message = get_wallapop_item_message(chat_id)
+            sent_message_id = None
+
+            if existing_item_message:
+                existing_message_id = existing_item_message.get("message_id")
+                existing_has_image = existing_item_message.get("has_image", False)
+
+                if existing_message_id:
+                    if existing_message_id < callback_message_id:
+                        delete_message(chat_id, existing_message_id)
+                        clear_wallapop_item_message(chat_id)
+                    elif image and existing_has_image:
+                        edited = edit_photo_with_buttons(
+                            chat_id,
+                            existing_message_id,
+                            image,
+                            caption,
+                            buttons,
+                        )
+                        if edited:
+                            sent_message_id = existing_message_id
+                    elif not image and not existing_has_image:
+                        edit_message_with_buttons(chat_id, existing_message_id, caption, buttons)
+                        sent_message_id = existing_message_id
+                    else:
+                        delete_message(chat_id, existing_message_id)
+                        clear_wallapop_item_message(chat_id)
+
+            if sent_message_id is None:
+                if image:
+                    sent_message_id = send_photo_with_buttons(chat_id, image, caption, buttons)
+                else:
+                    sent_message_id = send_message_with_buttons(chat_id, caption, buttons)
+
+            if sent_message_id:
+                set_wallapop_item_message(
+                    chat_id,
+                    {
+                        "message_id": sent_message_id,
+                        "has_image": bool(image),
+                    },
+                )
             return {"ok": True}
         
         should_answer_callback_at_end = True

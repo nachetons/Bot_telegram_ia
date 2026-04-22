@@ -26,6 +26,54 @@ def send_message(chat_id: str, text: str):
         print("send_message error:", e)
 
 
+def send_message_with_reply_keyboard(chat_id: str, text: str, keyboard: list, one_time_keyboard: bool = True):
+    try:
+        response = requests.post(
+            f"{BASE_URL}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": text[:4000],
+                "reply_markup": {
+                    "keyboard": keyboard,
+                    "resize_keyboard": True,
+                    "one_time_keyboard": one_time_keyboard,
+                }
+            },
+            timeout=10
+        )
+        print("TG REPLY KEYBOARD:", response.status_code, response.text)
+        data = response.json()
+        if data.get("ok"):
+            return data.get("result", {}).get("message_id")
+    except Exception as e:
+        print("send_message_with_reply_keyboard error:", e)
+    return None
+
+
+def remove_reply_keyboard(chat_id: str):
+    try:
+        response = requests.post(
+            f"{BASE_URL}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": "\u2063",
+                "reply_markup": {
+                    "remove_keyboard": True
+                }
+            },
+            timeout=10
+        )
+        print("TG REMOVE KEYBOARD:", response.status_code, response.text)
+        data = response.json()
+        message_id = data.get("result", {}).get("message_id") if data.get("ok") else None
+        if message_id:
+            delete_message(chat_id, message_id)
+        return bool(data.get("ok"))
+    except Exception as e:
+        print("remove_reply_keyboard error:", e)
+        return False
+
+
 def get_file_path(file_id: str):
     try:
         r = requests.post(
@@ -183,13 +231,18 @@ def send_photo_with_buttons(chat_id: str, image_url: str, caption: str, buttons:
             }
         }
 
-        requests.post(
+        response = requests.post(
             f"{BASE_URL}/sendPhoto",
             json=payload,
             timeout=10
         )
+        print("TG PHOTO BUTTONS:", response.status_code, response.text)
+        data = response.json()
+        if data.get("ok"):
+            return data.get("result", {}).get("message_id")
     except Exception as e:
         print("send_photo_with_buttons error:", e)
+    return None
 
 
 def _build_media_group(images):
@@ -405,9 +458,40 @@ def send_message_with_buttons(chat_id: str, text: str, buttons: list):
 
         # 🔥 DEBUG REAL (CLAVE)
         print("TELEGRAM RESPONSE:", r.status_code, r.text)
+        data = r.json()
+        if data.get("ok"):
+            return data.get("result", {}).get("message_id")
 
     except Exception as e:
         print("Error send buttons:", e)
+    return None
+
+
+def edit_photo_with_buttons(chat_id: str, message_id: int, image_url: str, caption: str, buttons: list):
+    try:
+        payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "media": {
+                "type": "photo",
+                "media": image_url,
+                "caption": (caption or "")[:1024],
+            },
+            "reply_markup": {
+                "inline_keyboard": buttons
+            }
+        }
+
+        response = requests.post(
+            f"{BASE_URL}/editMessageMedia",
+            json=payload,
+            timeout=10
+        )
+        print("TG EDIT PHOTO BUTTONS:", response.status_code, response.text)
+        return response.ok
+    except Exception as e:
+        print("edit_photo_with_buttons error:", e)
+        return False
 
 def answer_callback_query(callback_query_id, text=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
