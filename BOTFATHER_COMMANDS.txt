@@ -1,5 +1,6 @@
 start - guia rapida para empezar a usar el bot
 helper - mostrar todos los comandos y usos
+clear - limpiar el contexto actual del chat
 menu - abrir el menu principal
 library - navegar por la biblioteca de Jellyfin
 video - buscar y reproducir una pelicula

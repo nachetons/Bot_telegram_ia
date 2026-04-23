@@ -21,6 +21,9 @@ from app.utils.wallapop_ui import (
 
 
 def handle_slash_command(text: str, chat_id):
+    if text.startswith("/clear"):
+        return True, "🧹 He limpiado el contexto de este chat. Puedes empezar de nuevo cuando quieras.", []
+
     if text.startswith("/start"):
         clear_base_chat_state(chat_id)
         clear_wallapop_result_session(chat_id)

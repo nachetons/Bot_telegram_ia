@@ -28,6 +28,7 @@ from app.services.telegram_client import (
     send_message_with_buttons,
     edit_photo_with_buttons,
     answer_callback_query,
+    pop_recent_bot_messages,
 )
 from app.config import YOUTUBE_SEND_AS_DOCUMENT
 from app.tools.jellyfin import jellyfin
@@ -48,6 +49,7 @@ from app.core.access_control import (
     register_access_request,
 )
 from app.core.chat_state import (
+    clear_all_chat_state,
     clear_base_chat_state,
     clear_pending_followup,
     clear_playlist_session,
@@ -123,6 +125,32 @@ def _access_request_buttons(user_id):
         {"text": "✅ Aprobar", "callback_data": f"access_approve:{user_id}"},
         {"text": "❌ Bloquear", "callback_data": f"access_block:{user_id}"},
     ]]
+
+
+def _clear_chat_context(chat_id, remove_keyboard=False, source_message_id=None):
+    recent_message_ids = list(reversed(pop_recent_bot_messages(chat_id)))
+    seen_message_ids = set()
+    for message_id in recent_message_ids:
+        if not message_id or message_id in seen_message_ids:
+            continue
+        seen_message_ids.add(message_id)
+        delete_message(chat_id, message_id)
+
+    existing_jellyfin_item_message = get_jellyfin_item_message(chat_id)
+    if existing_jellyfin_item_message and existing_jellyfin_item_message.get("message_id"):
+        delete_message(chat_id, existing_jellyfin_item_message["message_id"])
+
+    existing_wallapop_item_message = get_wallapop_item_message(chat_id)
+    if existing_wallapop_item_message and existing_wallapop_item_message.get("message_id"):
+        delete_message(chat_id, existing_wallapop_item_message["message_id"])
+
+    clear_all_chat_state(chat_id)
+
+    if remove_keyboard:
+        remove_reply_keyboard(chat_id)
+
+    if source_message_id:
+        delete_message(chat_id, source_message_id)
 
 
 def _notify_admins_about_access(request_payload):
@@ -271,9 +299,9 @@ def _ensure_chat_worker(chat_id):
         worker.start()
 
 
-def _enqueue_chat_message(chat_id, text, placeholder_message_id=None):
+def _enqueue_chat_message(chat_id, text, placeholder_message_id=None, source_message_id=None):
     queue = _get_chat_queue(chat_id)
-    queue.put((text, placeholder_message_id))
+    queue.put((text, placeholder_message_id, source_message_id))
     _ensure_chat_worker(chat_id)
 
 
@@ -281,9 +309,9 @@ def _chat_worker_loop(chat_id):
     queue = _get_chat_queue(chat_id)
 
     while True:
-        text, placeholder_message_id = queue.get()
+        text, placeholder_message_id, source_message_id = queue.get()
         try:
-            _process_locked(text, chat_id, placeholder_message_id)
+            _process_locked(text, chat_id, placeholder_message_id, source_message_id)
         finally:
             queue.task_done()
 
@@ -368,11 +396,11 @@ def _should_skip_placeholder(chat_id, text):
     return False
 
 
-def process(text, chat_id, placeholder_message_id=None):
-    _enqueue_chat_message(chat_id, text, placeholder_message_id)
+def process(text, chat_id, placeholder_message_id=None, source_message_id=None):
+    _enqueue_chat_message(chat_id, text, placeholder_message_id, source_message_id)
 
 
-def _process_locked(text, chat_id, placeholder_message_id=None):
+def _process_locked(text, chat_id, placeholder_message_id=None, source_message_id=None):
     stop_typing = threading.Event()
     stop_placeholder = threading.Event()
     typing_thread = threading.Thread(
@@ -401,13 +429,16 @@ def _process_locked(text, chat_id, placeholder_message_id=None):
         wallapop_alert_session = None
 
         if text.startswith("/"):
-            clear_base_chat_state(chat_id)
-            existing_jellyfin_item_message = get_jellyfin_item_message(chat_id)
-            if existing_jellyfin_item_message and existing_jellyfin_item_message.get("message_id"):
-                delete_message(chat_id, existing_jellyfin_item_message["message_id"])
-            clear_jellyfin_item_message(chat_id)
-            clear_wallapop_alert_session(chat_id)
-            clear_wallapop_session(chat_id)
+            if text.startswith("/clear"):
+                _clear_chat_context(chat_id, remove_keyboard=True, source_message_id=source_message_id)
+            else:
+                clear_base_chat_state(chat_id)
+                existing_jellyfin_item_message = get_jellyfin_item_message(chat_id)
+                if existing_jellyfin_item_message and existing_jellyfin_item_message.get("message_id"):
+                    delete_message(chat_id, existing_jellyfin_item_message["message_id"])
+                clear_jellyfin_item_message(chat_id)
+                clear_wallapop_alert_session(chat_id)
+                clear_wallapop_session(chat_id)
         else:
             pending_intent = pop_pending_followup(chat_id)
             playlist_session = get_playlist_session(chat_id)
@@ -1609,6 +1640,6 @@ async def webhook(req: Request):
         placeholder_message_id = send_temp_message(chat_id, "Buscando...")
         send_chat_action(chat_id, "typing")
 
-    process(text, chat_id, placeholder_message_id)
+    process(text, chat_id, placeholder_message_id, message.get("message_id"))
 
     return {"ok": True}

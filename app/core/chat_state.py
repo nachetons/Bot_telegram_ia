@@ -166,3 +166,15 @@ def clear_base_chat_state(chat_id):
     clear_pending_followup(chat_id)
     clear_playlist_session(chat_id)
     clear_translate_session(chat_id)
+
+
+def clear_all_chat_state(chat_id):
+    clear_pending_followup(chat_id)
+    clear_playlist_session(chat_id)
+    clear_translate_session(chat_id)
+    clear_translate_result(chat_id)
+    clear_wallapop_session(chat_id)
+    clear_wallapop_result_session(chat_id)
+    clear_wallapop_item_message(chat_id)
+    clear_wallapop_alert_session(chat_id)
+    clear_jellyfin_item_message(chat_id)

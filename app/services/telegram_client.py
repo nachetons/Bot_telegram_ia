@@ -1,16 +1,53 @@
 import json
 import requests
+import threading
 from itertools import combinations
 from pathlib import Path
 from app.config import TELEGRAM_BOT_TOKEN
 
 BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 TELEGRAM_MEDIA_TIMEOUT = 30
+recent_bot_messages = {}
+recent_bot_messages_lock = threading.Lock()
+
+
+def _track_bot_message(chat_id, message_id):
+    if chat_id is None or message_id is None:
+        return
+    chat_id = int(chat_id)
+    message_id = int(message_id)
+    with recent_bot_messages_lock:
+        history = list(recent_bot_messages.get(chat_id, []))
+        if message_id in history:
+            history.remove(message_id)
+        history.append(message_id)
+        recent_bot_messages[chat_id] = history[-80:]
+
+
+def _untrack_bot_message(chat_id, message_id):
+    if chat_id is None or message_id is None:
+        return
+    chat_id = int(chat_id)
+    message_id = int(message_id)
+    with recent_bot_messages_lock:
+        history = [value for value in recent_bot_messages.get(chat_id, []) if int(value) != message_id]
+        if history:
+            recent_bot_messages[chat_id] = history
+        else:
+            recent_bot_messages.pop(chat_id, None)
+
+
+def pop_recent_bot_messages(chat_id):
+    if chat_id is None:
+        return []
+    with recent_bot_messages_lock:
+        return list(recent_bot_messages.pop(int(chat_id), []))
 
 
 def send_message(chat_id: str, text: str):
     try:
         chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
+        last_message_id = None
 
         for chunk in chunks:
             r = requests.post(
@@ -23,9 +60,16 @@ def send_message(chat_id: str, text: str):
             )
 
             print("TG:", r.status_code, r.text)
+            data = r.json()
+            if data.get("ok"):
+                last_message_id = data.get("result", {}).get("message_id")
+                _track_bot_message(chat_id, last_message_id)
+
+        return last_message_id
 
     except Exception as e:
         print("send_message error:", e)
+    return None
 
 
 def send_message_with_reply_keyboard(chat_id: str, text: str, keyboard: list, one_time_keyboard: bool = True):
@@ -46,7 +90,9 @@ def send_message_with_reply_keyboard(chat_id: str, text: str, keyboard: list, on
         print("TG REPLY KEYBOARD:", response.status_code, response.text)
         data = response.json()
         if data.get("ok"):
-            return data.get("result", {}).get("message_id")
+            message_id = data.get("result", {}).get("message_id")
+            _track_bot_message(chat_id, message_id)
+            return message_id
     except Exception as e:
         print("send_message_with_reply_keyboard error:", e)
     return None
@@ -124,7 +170,9 @@ def send_temp_message(chat_id: str, text: str = "Buscando..."):
 
         data = r.json()
         if data.get("ok"):
-            return data.get("result", {}).get("message_id")
+            message_id = data.get("result", {}).get("message_id")
+            _track_bot_message(chat_id, message_id)
+            return message_id
     except Exception as e:
         print("send_temp_message error:", e)
 
@@ -183,6 +231,8 @@ def delete_message(chat_id: str, message_id: int):
             timeout=5
         )
         print("TG DELETE:", r.status_code, r.text)
+        if r.ok:
+            _untrack_bot_message(chat_id, message_id)
     except Exception as e:
         print("delete_message error:", e)
 
@@ -218,8 +268,14 @@ def send_photo(chat_id: str, image_url: str, caption: str = None):
             timeout=TELEGRAM_MEDIA_TIMEOUT
         )
         print("TG PHOTO:", response.status_code, response.text)
+        data = response.json()
+        if data.get("ok"):
+            message_id = data.get("result", {}).get("message_id")
+            _track_bot_message(chat_id, message_id)
+            return message_id
     except Exception as e:
         print("send_photo error:", e)
+    return None
 
 
 def send_photo_with_buttons(chat_id: str, image_url: str, caption: str, buttons: list):
@@ -241,7 +297,9 @@ def send_photo_with_buttons(chat_id: str, image_url: str, caption: str, buttons:
         print("TG PHOTO BUTTONS:", response.status_code, response.text)
         data = response.json()
         if data.get("ok"):
-            return data.get("result", {}).get("message_id")
+            message_id = data.get("result", {}).get("message_id")
+            _track_bot_message(chat_id, message_id)
+            return message_id
     except Exception as e:
         print("send_photo_with_buttons error:", e)
     return None
@@ -264,7 +322,9 @@ def send_photo_bytes_with_buttons(chat_id: str, photo_bytes: bytes, filename: st
         print("TG PHOTO BYTES BUTTONS:", response.status_code, response.text)
         data = response.json()
         if data.get("ok"):
-            return data.get("result", {}).get("message_id")
+            message_id = data.get("result", {}).get("message_id")
+            _track_bot_message(chat_id, message_id)
+            return message_id
     except Exception as e:
         print("send_photo_bytes_with_buttons error:", e)
     return None
@@ -294,6 +354,13 @@ def _try_send_media_group(chat_id, images):
         timeout=15
     )
     print("TG MEDIA GROUP:", response.status_code, response.text)
+    try:
+        data = response.json()
+        if data.get("ok"):
+            for item in data.get("result", []):
+                _track_bot_message(chat_id, item.get("message_id"))
+    except Exception:
+        pass
     return response
 
 
@@ -411,6 +478,9 @@ def send_local_video(chat_id: str, video_path: str, caption: str = None):
                 timeout=120
             )
             print("TG LOCAL VIDEO:", response.status_code, response.text)
+            data = response.json()
+            if data.get("ok"):
+                _track_bot_message(chat_id, data.get("result", {}).get("message_id"))
     except Exception as e:
         print("send_local_video error:", e)
 
@@ -435,6 +505,9 @@ def send_local_document(chat_id: str, file_path: str, caption: str = None):
                 timeout=120
             )
             print("TG LOCAL DOCUMENT:", response.status_code, response.text)
+            data = response.json()
+            if data.get("ok"):
+                _track_bot_message(chat_id, data.get("result", {}).get("message_id"))
     except Exception as e:
         print("send_local_document error:", e)
 
@@ -460,6 +533,9 @@ def send_local_audio(chat_id: str, audio_path: str, title: str = None, performer
                 timeout=120
             )
             print("TG LOCAL AUDIO:", response.status_code, response.text)
+            data = response.json()
+            if data.get("ok"):
+                _track_bot_message(chat_id, data.get("result", {}).get("message_id"))
     except Exception as e:
         print("send_local_audio error:", e)
 
@@ -485,7 +561,9 @@ def send_message_with_buttons(chat_id: str, text: str, buttons: list):
         print("TELEGRAM RESPONSE:", r.status_code, r.text)
         data = r.json()
         if data.get("ok"):
-            return data.get("result", {}).get("message_id")
+            message_id = data.get("result", {}).get("message_id")
+            _track_bot_message(chat_id, message_id)
+            return message_id
 
     except Exception as e:
         print("Error send buttons:", e)
