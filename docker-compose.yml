@@ -9,5 +9,6 @@ services:
       - .env
     volumes:
       - ./app:/app/app
+      - ./data:/app/data
       - /media/casaos/Library/PYTHON/Agent:/repo
     restart: always

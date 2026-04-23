@@ -13,3 +13,5 @@ music - buscar y enviar audio de musica
 translate - traducir texto entre idiomas
 playlist - gestionar playlists locales
 wallapop - busquedas de articulos
+mis_alertas - ver y gestionar alertas de Wallapop
+control - panel de control y accesos del bot

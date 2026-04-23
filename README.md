@@ -24,6 +24,7 @@ Además de los comandos clásicos, también puede resolver **consultas libres en
 - [Ejemplos de uso](#ejemplos-de-uso)
 - [Casos de uso](#casos-de-uso)
 - [Wallapop y alertas](#wallapop-y-alertas)
+- [Control de acceso y administracion](#control-de-acceso-y-administracion)
 - [Arquitectura y estructura](#arquitectura-y-estructura)
 - [Sesiones por usuario](#sesiones-por-usuario)
 - [Rendimiento y optimizaciones](#rendimiento-y-optimizaciones)
@@ -65,6 +66,7 @@ El objetivo no es solo “responder comandos”, sino ofrecer una experiencia fl
 | 🌍 Traducción | Texto, nota de voz, TTS y flujo guiado |
 | 🛒 Wallapop | Búsqueda avanzada, fichas, gangas, paginación y alertas |
 | 🧰 Utilidades | Wiki, imágenes, tiempo, onboarding y ayuda |
+| 🔐 Control | Whitelist de usuarios, solicitudes de acceso y panel admin |
 | 🧠 IA general | Consultas libres sin slash cuando no hay un flujo específico |
 
 <a id="funciones-principales"></a>
@@ -84,6 +86,8 @@ Qué incluye:
 - paginación en listados largos
 - flujo `serie -> temporadas -> episodios`
 - selección de audio/idioma cuando está disponible
+- ficha única reutilizable para no acumular tarjetas en el chat
+- envío de carátulas como binario a Telegram para mejorar velocidad y fiabilidad
 - proxy seguro opcional para no exponer Jellyfin directamente
 
 ### 📺 YouTube
@@ -177,6 +181,7 @@ Qué incluye:
 - `/start`
 - `/helper`
 - `/help`
+- `/control` solo para administración
 
 ### 🧠 Consultas libres
 
@@ -192,6 +197,20 @@ Esto convive con los comandos directos, así que:
 
 - si usas un comando, el flujo es determinista
 - si escribes texto libre, el bot intenta resolverlo con su capa de IA
+
+### 🛠️ Administración
+
+- `/control`
+
+Qué incluye:
+
+- control de acceso por whitelist
+- panel visual de usuarios
+- estados `pendiente`, `aprobado` y `bloqueado`
+- vista de detalle por usuario
+- historial reciente de entradas
+- acciones rápidas de aprobar o bloquear
+- persistencia de accesos fuera del contenedor
 
 <a id="modo-guiado"></a>
 ## 🧭 Modo guiado
@@ -235,6 +254,7 @@ Ejemplos:
 /translate en | hola mundo
 /wallapop steam deck
 /mis_alertas
+/control
 cuantos goles lleva cristiano ronaldo
 ```
 
@@ -470,6 +490,54 @@ Por eso el sistema usa esta estrategia:
 
 El menú de `/mis_alertas` muestra la zona horaria usada para que no haya ambigüedad.
 
+<a id="control-de-acceso-y-administracion"></a>
+## 🔐 Control de acceso y administración
+
+El bot puede quedar cerrado por defecto aunque cualquiera pueda encontrar su `username` en Telegram.
+
+### Modelo de acceso
+
+- usuarios administradores cargados desde `TELEGRAM_ADMIN_CHAT_IDS`
+- alta automática de admins como aprobados
+- usuarios nuevos en estado `pendiente`
+- aprobación o bloqueo manual desde el panel `/control`
+
+### Persistencia
+
+El estado de acceso se guarda en:
+
+- `data/access/users.json`
+
+Esto permite conservar:
+
+- usuarios aprobados
+- usuarios bloqueados
+- solicitudes pendientes
+- perfiles básicos
+- última actividad e histórico reciente
+
+### Panel `/control`
+
+Desde el panel de administración puedes:
+
+- listar usuarios por estado
+- abrir la ficha de un usuario
+- aprobar o bloquear
+- volver automáticamente a la lista después de actuar
+- revisar:
+  - fecha de primera vez visto
+  - fecha de solicitud
+  - fecha de aprobación o bloqueo
+  - último uso
+  - contador de actividad
+  - entradas recientes
+
+### Recomendación de despliegue
+
+Si quieres que el control de acceso sobreviva a recreaciones del contenedor, mantén montado el directorio:
+
+- `./data:/app/data`
+
 <a id="arquitectura-y-estructura"></a>
 ## 🏗️ Arquitectura y estructura
 
@@ -511,10 +579,12 @@ Agent/
     ├── router.py
     ├── config.py
     ├── core/
+    │   ├── access_control.py
     │   ├── callback_handler.py
     │   ├── chat_state.py
     │   ├── command_flow.py
     │   ├── direct_intents.py
+    │   ├── playlist_flow.py
     │   ├── router_intent.py
     │   ├── translate_flow.py
     │   └── wallapop_alert_worker.py
@@ -537,6 +607,7 @@ Agent/
     │   ├── wiki.py
     │   └── youtube.py
     └── utils/
+        ├── access_ui.py
         ├── bot_ui.py
         ├── jellyfin_ui.py
         ├── playlist_ui.py
@@ -558,6 +629,7 @@ Cada usuario mantiene su propio:
 - traducción pendiente
 - búsqueda temporal de Wallapop
 - ficha abierta de Wallapop
+- ficha abierta de Jellyfin
 - alerta de Wallapop activa
 
 <a id="rendimiento-y-optimizaciones"></a>
@@ -590,6 +662,8 @@ Esto acelera especialmente:
 - soporte de proxy firmado opcional
 - evita exponer `api_key`
 - evita filtrar rutas internas del servidor multimedia
+- carátulas subidas directamente por el bot para evitar problemas de descarga remota de Telegram
+- menos llamadas repetidas a Jellyfin al construir la ficha y los botones de audio
 
 <a id="variables-de-entorno"></a>
 ## ⚙️ Variables de entorno
@@ -599,6 +673,7 @@ Ejemplo base:
 ```env
 # Telegram
 TELEGRAM_TOKEN=tu_token
+TELEGRAM_ADMIN_CHAT_IDS=123456789,987654321
 
 # Jellyfin
 JELLYFIN_URL=https://tu-jellyfin
@@ -644,6 +719,12 @@ Notas para alertas de Wallapop:
 - en producción lo normal es usar minutos a `0`
 - el horario de referencia sale de `APP_TIMEZONE` si no se puede inferir uno mejor
 - si compartes ubicación en Wallapop, el sistema intenta usar esa pista para ajustar mejor la zona horaria de la alerta
+
+Notas para administración:
+
+- `TELEGRAM_ADMIN_CHAT_IDS` acepta uno o varios IDs separados por comas
+- esos admins quedan aprobados automáticamente
+- el control de acceso persistido vive en `data/access/users.json`
 
 <a id="instalacion-y-ejecucion"></a>
 ## 🛠️ Instalación y ejecución
@@ -724,6 +805,7 @@ El bot soporta actualmente:
 - menús interactivos
 - sesiones guiadas
 - multiusuario por chat
+- control de acceso por whitelist
 - reproducción de vídeo y audio
 - traducción de texto y voz
 - búsquedas guiadas de Wallapop
@@ -759,6 +841,20 @@ También puedes usar:
 - `🧪 Probar ahora`
 
 para forzar una comprobación manual sin esperar al siguiente ciclo.
+
+### El panel `/control` no muestra usuarios o no te deja administrar
+
+Comprueba:
+
+- que `TELEGRAM_ADMIN_CHAT_IDS` esté configurado
+- que el contenedor se haya reiniciado después del cambio
+- que `./data` siga montado para conservar `data/access/users.json`
+
+Si quieres resetear pruebas de acceso, puedes borrar:
+
+- `data/access/users.json`
+
+y reiniciar el servicio para que el archivo se regenere con los admins actuales.
 
 ### La hora de la alerta no coincide exactamente con mi dispositivo
 

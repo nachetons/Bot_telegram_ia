@@ -18,7 +18,7 @@ def format_jellyfin_lang(lang):
     return f"🎧 {lang.upper()}"
 
 
-def build_jellyfin_audio_buttons(item_id, audio_tracks):
+def build_jellyfin_audio_buttons(item_id, audio_tracks, media_source_id=None):
     buttons = []
     used_langs = set()
 
@@ -28,11 +28,11 @@ def build_jellyfin_audio_buttons(item_id, audio_tracks):
             continue
 
         used_langs.add(lang)
-        index = jellyfin.get_audio_stream_by_language(item_id, lang)
+        index = track.get("index")
         if index is None:
             continue
 
-        url = jellyfin.get_stream_url(item_id, index)
+        url = jellyfin.get_stream_url(item_id, index, media_source_id=media_source_id)
         buttons.append([
             {
                 "text": format_jellyfin_lang(lang),
@@ -41,6 +41,6 @@ def build_jellyfin_audio_buttons(item_id, audio_tracks):
         ])
 
     if not buttons:
-        buttons = [[{"text": "▶ Reproducir", "url": jellyfin.get_stream_url(item_id, 0)}]]
+        buttons = [[{"text": "▶ Reproducir", "url": jellyfin.get_stream_url(item_id, 0, media_source_id=media_source_id)}]]
 
     return buttons

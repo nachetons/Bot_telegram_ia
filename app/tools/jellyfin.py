@@ -16,8 +16,6 @@ logger = logging.getLogger("jellyfin")
 
 REQUEST_TIMEOUT = 10
 PAGE_SIZE = 200
-
-
 def normalize(text: str) -> str:
     text = (text or "").lower()
     text = unicodedata.normalize("NFD", text)
@@ -59,6 +57,22 @@ class JellyfinTool:
             logger.error("Invalid JSON from Jellyfin: %s", exc)
 
         return {}
+
+    def _request_binary(self, path: str, params=None):
+        url = f"{self.base_url}{path}"
+        try:
+            response = requests.get(
+                url,
+                headers=self._headers(),
+                params=params,
+                timeout=REQUEST_TIMEOUT,
+            )
+            logger.info("Jellyfin GET %s -> %s", response.url, response.status_code)
+            response.raise_for_status()
+            return response.content, response.headers.get("Content-Type", "application/octet-stream")
+        except requests.RequestException as exc:
+            logger.error("Error downloading binary from Jellyfin: %s", exc)
+            return None, None
 
     def _get_all_items(self, item_type: str):
         items = []
@@ -275,8 +289,7 @@ class JellyfinTool:
         media_sources = data.get("MediaSources", [])
         return data, media_sources[0] if media_sources else None
 
-    def get_audio_tracks(self, item_id):
-        _, media_source = self._get_primary_media_source(item_id)
+    def _extract_audio_tracks_from_media_source(self, media_source):
         if not media_source:
             return []
 
@@ -291,6 +304,10 @@ class JellyfinTool:
                 )
 
         return audio_tracks
+
+    def get_audio_tracks(self, item_id):
+        _, media_source = self._get_primary_media_source(item_id)
+        return self._extract_audio_tracks_from_media_source(media_source)
 
     def get_audio_stream_by_language(self, item_id, lang_code="spa"):
         _, media_source = self._get_primary_media_source(item_id)
@@ -320,8 +337,15 @@ class JellyfinTool:
         params = urlencode({"api_key": self.api_key})
         return f"{self.base_url}/Items/{item_id}/Images/Primary?{params}"
 
-    def get_stream_url(self, item_id, audio_index=0):
-        _, media_source = self._get_primary_media_source(item_id)
+    def get_image_binary(self, item_id):
+        if not item_id:
+            return None, None
+        return self._request_binary(f"/Items/{item_id}/Images/Primary")
+
+    def get_stream_url(self, item_id, audio_index=0, media_source_id=None):
+        media_source = None
+        if not media_source_id:
+            _, media_source = self._get_primary_media_source(item_id)
 
         params = {
             "api_key": self.api_key,
@@ -332,8 +356,9 @@ class JellyfinTool:
             "AllowAudioStreamCopy": "false",
         }
 
-        if media_source and media_source.get("Id"):
-            params["MediaSourceId"] = media_source["Id"]
+        resolved_media_source_id = media_source_id or (media_source.get("Id") if media_source else None)
+        if resolved_media_source_id:
+            params["MediaSourceId"] = resolved_media_source_id
 
         relative_path = f"/Videos/{item_id}/master.m3u8?{urlencode(params)}"
         if self.public_base_url and self.proxy_secret:
@@ -389,13 +414,15 @@ class JellyfinTool:
             return {"error": "No se encontraron películas"}
 
         item_id = movie["Id"]
+        _, media_source = self._get_primary_media_source(item_id)
 
         return {
             "type": "video",
             "title": movie.get("Name"),
             "image": self.get_image_url(movie),
             "item_id": item_id,
-            "audio_tracks": self.get_audio_tracks(item_id),
+            "audio_tracks": self._extract_audio_tracks_from_media_source(media_source),
+            "media_source_id": media_source.get("Id") if media_source else None,
             "score": result.get("score"),
         }
 
@@ -403,13 +430,16 @@ class JellyfinTool:
         data = self.get_item_info(item_id)
         if not data or not data.get("Id"):
             return {"error": "No pude cargar ese contenido desde Jellyfin."}
+        media_sources = data.get("MediaSources", [])
+        media_source = media_sources[0] if media_sources else None
 
         return {
             "type": "video",
             "title": data.get("Name"),
             "image": self.get_image_url(data),
             "item_id": item_id,
-            "audio_tracks": self.get_audio_tracks(item_id),
+            "audio_tracks": self._extract_audio_tracks_from_media_source(media_source),
+            "media_source_id": media_source.get("Id") if media_source else None,
         }
 
 

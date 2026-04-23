@@ -10,6 +10,11 @@ OPENROUTER_URL = os.getenv("OPENROUTER_URL")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_ADMIN_CHAT_IDS = [
+    int(value.strip())
+    for value in os.getenv("TELEGRAM_ADMIN_CHAT_IDS", "").split(",")
+    if value.strip().isdigit()
+]
 APP_BASE_URL = os.getenv("APP_BASE_URL", "").strip().rstrip("/")
 MEDIA_PROXY_SECRET = os.getenv("MEDIA_PROXY_SECRET", "").strip()
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Europe/Madrid").strip() or "Europe/Madrid"

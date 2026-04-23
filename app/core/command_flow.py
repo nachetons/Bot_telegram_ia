@@ -6,10 +6,12 @@ from app.core.chat_state import (
     set_translate_session,
     set_wallapop_session,
 )
+from app.core.access_control import is_admin, list_users
 from app.core.direct_intents import run_direct_intent
 from app.core.playlist_flow import handle_playlist_command
 from app.tools.wallapop_alerts import get_alert_for_chat
 from app.utils.bot_ui import helper_message, start_message
+from app.utils.access_ui import build_control_menu
 from app.utils.wallapop_ui import (
     wallapop_alerts_menu,
     wallapop_condition_buttons,
@@ -102,6 +104,12 @@ def handle_slash_command(text: str, chat_id):
 
     if text.startswith("/mis_alertas"):
         return True, wallapop_alerts_menu(get_alert_for_chat(chat_id)), ["wallapop_tool"]
+
+    if text.startswith("/control"):
+        if not is_admin(chat_id):
+            return True, "⛔ Este panel es solo para administradores.", []
+        users = list_users("all")
+        return True, build_control_menu(users, current_filter="all", page=0), ["access_control"]
 
     if text.startswith("/library") or text.startswith("/menu") or text.startswith("/catalog"):
         return True, *run_direct_intent("library", "", chat_id)

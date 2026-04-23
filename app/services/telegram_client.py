@@ -1,9 +1,11 @@
+import json
 import requests
 from itertools import combinations
 from pathlib import Path
 from app.config import TELEGRAM_BOT_TOKEN
 
 BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+TELEGRAM_MEDIA_TIMEOUT = 30
 
 
 def send_message(chat_id: str, text: str):
@@ -213,7 +215,7 @@ def send_photo(chat_id: str, image_url: str, caption: str = None):
         response = requests.post(
             f"{BASE_URL}/sendPhoto",
             json=payload,
-            timeout=10
+            timeout=TELEGRAM_MEDIA_TIMEOUT
         )
         print("TG PHOTO:", response.status_code, response.text)
     except Exception as e:
@@ -234,7 +236,7 @@ def send_photo_with_buttons(chat_id: str, image_url: str, caption: str, buttons:
         response = requests.post(
             f"{BASE_URL}/sendPhoto",
             json=payload,
-            timeout=10
+            timeout=TELEGRAM_MEDIA_TIMEOUT
         )
         print("TG PHOTO BUTTONS:", response.status_code, response.text)
         data = response.json()
@@ -242,6 +244,29 @@ def send_photo_with_buttons(chat_id: str, image_url: str, caption: str, buttons:
             return data.get("result", {}).get("message_id")
     except Exception as e:
         print("send_photo_with_buttons error:", e)
+    return None
+
+
+def send_photo_bytes_with_buttons(chat_id: str, photo_bytes: bytes, filename: str, caption: str, buttons: list):
+    try:
+        response = requests.post(
+            f"{BASE_URL}/sendPhoto",
+            data={
+                "chat_id": chat_id,
+                "caption": (caption or "")[:1024],
+                "reply_markup": json.dumps({"inline_keyboard": buttons}, ensure_ascii=False),
+            },
+            files={
+                "photo": (filename or "image.jpg", photo_bytes),
+            },
+            timeout=TELEGRAM_MEDIA_TIMEOUT,
+        )
+        print("TG PHOTO BYTES BUTTONS:", response.status_code, response.text)
+        data = response.json()
+        if data.get("ok"):
+            return data.get("result", {}).get("message_id")
+    except Exception as e:
+        print("send_photo_bytes_with_buttons error:", e)
     return None
 
 

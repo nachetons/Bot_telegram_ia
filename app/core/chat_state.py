@@ -15,6 +15,8 @@ wallapop_result_sessions = {}
 wallapop_result_sessions_lock = threading.Lock()
 wallapop_item_messages = {}
 wallapop_item_messages_lock = threading.Lock()
+jellyfin_item_messages = {}
+jellyfin_item_messages_lock = threading.Lock()
 wallapop_alert_sessions = {}
 wallapop_alert_sessions_lock = threading.Lock()
 
@@ -113,6 +115,21 @@ def get_wallapop_item_message(chat_id):
 def clear_wallapop_item_message(chat_id):
     with wallapop_item_messages_lock:
         wallapop_item_messages.pop(chat_id, None)
+
+
+def set_jellyfin_item_message(chat_id, payload):
+    with jellyfin_item_messages_lock:
+        jellyfin_item_messages[chat_id] = payload
+
+
+def get_jellyfin_item_message(chat_id):
+    with jellyfin_item_messages_lock:
+        return jellyfin_item_messages.get(chat_id)
+
+
+def clear_jellyfin_item_message(chat_id):
+    with jellyfin_item_messages_lock:
+        jellyfin_item_messages.pop(chat_id, None)
 
 
 def set_wallapop_alert_session(chat_id, payload):

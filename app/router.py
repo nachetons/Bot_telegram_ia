@@ -16,6 +16,7 @@ from app.services.telegram_client import (
     send_local_audio,
     send_local_document,
     send_photo,
+    send_photo_bytes_with_buttons,
     send_photo_with_buttons,
     send_images,
     send_chat_action,
@@ -34,17 +35,31 @@ from app.core.callback_handler import handle_callback
 from app.core.command_flow import handle_slash_command
 from app.core.direct_intents import run_direct_intent
 from app.core.translate_flow import handle_translate_voice_input
+from app.core.access_control import (
+    approve_user,
+    block_user,
+    get_user_details,
+    is_admin,
+    is_approved,
+    is_blocked,
+    list_users,
+    list_admins,
+    record_user_activity,
+    register_access_request,
+)
 from app.core.chat_state import (
     clear_base_chat_state,
     clear_pending_followup,
     clear_playlist_session,
     clear_translate_session,
     clear_translate_result,
+    clear_jellyfin_item_message,
     clear_wallapop_alert_session,
     clear_wallapop_item_message,
     clear_wallapop_result_session,
     clear_wallapop_session,
     get_playlist_session,
+    get_jellyfin_item_message,
     get_translate_result,
     get_translate_session,
     get_wallapop_alert_session,
@@ -54,6 +69,7 @@ from app.core.chat_state import (
     pop_pending_followup,
     set_pending_followup,
     set_playlist_session,
+    set_jellyfin_item_message,
     set_translate_result,
     set_translate_session,
     set_wallapop_alert_session,
@@ -67,6 +83,11 @@ from app.utils.playlist_ui import (
     coerce_playlist_feedback,
     playlist_manage_menu,
     playlist_remove_menu,
+)
+from app.utils.access_ui import (
+    build_control_menu,
+    build_user_actions_menu,
+    build_user_details_menu,
 )
 from app.utils.wallapop_ui import (
     WALLAPOP_UI_PAGE_SIZE,
@@ -95,6 +116,62 @@ router = APIRouter()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("bot")
+
+
+def _access_request_buttons(user_id):
+    return [[
+        {"text": "✅ Aprobar", "callback_data": f"access_approve:{user_id}"},
+        {"text": "❌ Bloquear", "callback_data": f"access_block:{user_id}"},
+    ]]
+
+
+def _notify_admins_about_access(request_payload):
+    user_id = request_payload.get("user_id")
+    first_name = request_payload.get("first_name") or "Sin nombre"
+    username = request_payload.get("username") or ""
+    username_line = f"@{username}" if username else "sin username"
+    text = (
+        "🔐 Nueva solicitud de acceso al bot\n\n"
+        f"Nombre: {first_name}\n"
+        f"Usuario: {username_line}\n"
+        f"user_id: {user_id}\n"
+        f"chat_id: {request_payload.get('chat_id')}\n"
+        f"Solicitado: {request_payload.get('requested_at')}"
+    )
+    buttons = _access_request_buttons(user_id)
+    for admin_chat_id in list_admins():
+        send_message_with_buttons(admin_chat_id, text, buttons)
+
+
+def _handle_access_gate(user_id, chat_id, first_name="", username="", callback_id=None):
+    if user_id is None:
+        return True
+
+    if is_admin(user_id) or is_approved(user_id):
+        return True
+
+    if is_blocked(user_id):
+        if callback_id:
+            answer_callback_query(callback_id, "No tienes acceso a este bot.")
+        send_message(chat_id, "⛔ No tienes acceso a este bot.")
+        return False
+
+    registration = register_access_request(
+        user_id,
+        chat_id=chat_id,
+        username=username,
+        first_name=first_name,
+    )
+    if registration.get("created") and registration.get("request"):
+        _notify_admins_about_access(registration["request"])
+
+    if callback_id:
+        answer_callback_query(callback_id, "Acceso pendiente de aprobación.")
+    send_message(
+        chat_id,
+        "🔒 Este bot es privado.\nTu acceso ha quedado pendiente de aprobación por el administrador.",
+    )
+    return False
 
 
 def _rewrite_jellyfin_playlist(content: str, current_target: str):
@@ -211,14 +288,42 @@ def _chat_worker_loop(chat_id):
             queue.task_done()
 
 
-def _send_jellyfin_video_response(chat_id, title, image, item_id, audio_tracks):
-    buttons = build_jellyfin_audio_buttons(item_id, audio_tracks)
+def _send_jellyfin_video_response(chat_id, title, image, item_id, audio_tracks, media_source_id=None, anchor_message_id=None):
+    buttons = build_jellyfin_audio_buttons(item_id, audio_tracks, media_source_id=media_source_id)
     caption = f"🎬 {title}\n\nElige idioma:"
+    existing_item_message = get_jellyfin_item_message(chat_id)
+
+    if existing_item_message and existing_item_message.get("message_id"):
+        existing_message_id = existing_item_message["message_id"]
+        # Si la ficha anterior quedó por encima del menú actual, o simplemente queremos
+        # mantener una sola ficha viva, la borramos antes de crear la nueva.
+        if anchor_message_id is None or existing_message_id != anchor_message_id:
+            delete_message(chat_id, existing_message_id)
+            clear_jellyfin_item_message(chat_id)
+
+    sent_message_id = None
+    image_bytes, _ = jellyfin.get_image_binary(item_id)
+    if image_bytes:
+        sent_message_id = send_photo_bytes_with_buttons(
+            chat_id,
+            image_bytes,
+            f"{item_id}.jpg",
+            caption,
+            buttons,
+        )
+        if sent_message_id:
+            set_jellyfin_item_message(chat_id, {"message_id": sent_message_id, "has_image": True})
+            return
 
     if image:
-        send_photo_with_buttons(chat_id, image, caption, buttons)
-    else:
-        send_message_with_buttons(chat_id, caption, buttons)
+        sent_message_id = send_photo_with_buttons(chat_id, image, caption, buttons)
+        if sent_message_id:
+            set_jellyfin_item_message(chat_id, {"message_id": sent_message_id, "has_image": True})
+            return
+
+    sent_message_id = send_message_with_buttons(chat_id, caption, buttons)
+    if sent_message_id:
+        set_jellyfin_item_message(chat_id, {"message_id": sent_message_id, "has_image": False})
 
 
 def _send_wallapop_location_prompt(chat_id, placeholder_message_id=None, stop_placeholder=None):
@@ -297,6 +402,10 @@ def _process_locked(text, chat_id, placeholder_message_id=None):
 
         if text.startswith("/"):
             clear_base_chat_state(chat_id)
+            existing_jellyfin_item_message = get_jellyfin_item_message(chat_id)
+            if existing_jellyfin_item_message and existing_jellyfin_item_message.get("message_id"):
+                delete_message(chat_id, existing_jellyfin_item_message["message_id"])
+            clear_jellyfin_item_message(chat_id)
             clear_wallapop_alert_session(chat_id)
             clear_wallapop_session(chat_id)
         else:
@@ -624,6 +733,9 @@ async def webhook(req: Request):
 
     text = None
     chat_id = None
+    sender_id = None
+    sender_username = ""
+    sender_first_name = ""
 
     # -----------------------
     # MESSAGE
@@ -632,8 +744,23 @@ async def webhook(req: Request):
         message = data["message"]
         text = message.get("text")
         chat_id = message["chat"]["id"]
+        sender = message.get("from") or {}
+        sender_id = sender.get("id")
+        sender_username = sender.get("username") or ""
+        sender_first_name = sender.get("first_name") or ""
         voice = message.get("voice")
         location = message.get("location")
+
+        record_user_activity(
+            sender_id,
+            chat_id=chat_id,
+            username=sender_username,
+            first_name=sender_first_name,
+            text=text,
+        )
+
+        if not _handle_access_gate(sender_id, chat_id, sender_first_name, sender_username):
+            return {"ok": True}
 
         if voice and chat_id:
             translate_session = get_translate_session(chat_id)
@@ -682,6 +809,172 @@ async def webhook(req: Request):
         chat_id = callback["message"]["chat"]["id"]
         callback_message_id = callback["message"]["message_id"]
         callback_data = callback.get("data", "")
+        sender = callback.get("from") or {}
+        sender_id = sender.get("id")
+        sender_username = sender.get("username") or ""
+        sender_first_name = sender.get("first_name") or ""
+
+        record_user_activity(
+            sender_id,
+            chat_id=chat_id,
+            username=sender_username,
+            first_name=sender_first_name,
+            text=f"[callback] {callback_data}",
+        )
+
+        if callback_data.startswith("access_approve:") or callback_data.startswith("access_block:"):
+            if not is_admin(sender_id):
+                answer_callback_query(callback["id"], "Solo un admin puede gestionar accesos.")
+                return {"ok": True}
+
+            target_user_id = callback_data.split(":", 1)[1]
+            if not str(target_user_id).isdigit():
+                answer_callback_query(callback["id"], "Usuario no válido.")
+                return {"ok": True}
+
+            if callback_data.startswith("access_approve:"):
+                approved_request = approve_user(int(target_user_id))
+                answer_callback_query(callback["id"], "Usuario aprobado.")
+                edit_message(
+                    chat_id,
+                    callback_message_id,
+                    f"✅ Acceso aprobado para {approved_request.get('first_name') or approved_request.get('username') or target_user_id} ({target_user_id})." if approved_request else f"✅ Acceso aprobado para {target_user_id}.",
+                )
+                target_chat_id = (approved_request or {}).get("chat_id") or int(target_user_id)
+                send_message(
+                    target_chat_id,
+                    "✅ Tu acceso al bot ha sido aprobado.\nYa puedes usarlo con normalidad.",
+                )
+                return {"ok": True}
+
+            blocked_request = block_user(int(target_user_id))
+            answer_callback_query(callback["id"], "Usuario bloqueado.")
+            edit_message(
+                chat_id,
+                callback_message_id,
+                f"❌ Acceso bloqueado para {blocked_request.get('first_name') or blocked_request.get('username') or target_user_id} ({target_user_id})." if blocked_request else f"❌ Acceso bloqueado para {target_user_id}.",
+            )
+            target_chat_id = (blocked_request or {}).get("chat_id") or int(target_user_id)
+            send_message(
+                target_chat_id,
+                "⛔ Tu acceso al bot ha sido rechazado.",
+            )
+            return {"ok": True}
+
+        if callback_data.startswith("control_approve:") or callback_data.startswith("control_block:"):
+            if not is_admin(sender_id):
+                answer_callback_query(callback["id"], "Solo un admin puede gestionar accesos.")
+                return {"ok": True}
+
+            _, target_user_id, status_filter, page_value = callback_data.split(":", 3)
+            if not str(target_user_id).isdigit():
+                answer_callback_query(callback["id"], "Usuario no válido.")
+                return {"ok": True}
+
+            try:
+                page = max(0, int(page_value))
+            except ValueError:
+                page = 0
+
+            if callback_data.startswith("control_approve:"):
+                approved_request = approve_user(int(target_user_id))
+                answer_callback_query(callback["id"], "Usuario aprobado.")
+                target_chat_id = (approved_request or {}).get("chat_id") or int(target_user_id)
+                send_message(
+                    target_chat_id,
+                    "✅ Tu acceso al bot ha sido aprobado.\nYa puedes usarlo con normalidad.",
+                )
+            else:
+                blocked_request = block_user(int(target_user_id))
+                answer_callback_query(callback["id"], "Usuario bloqueado.")
+                target_chat_id = (blocked_request or {}).get("chat_id") or int(target_user_id)
+                send_message(
+                    target_chat_id,
+                    "⛔ Tu acceso al bot ha sido rechazado.",
+                )
+
+            all_users = list_users("all")
+            users = all_users if status_filter == "all" else list_users(status_filter)
+            menu = build_control_menu(users, current_filter=status_filter, page=page, all_users=all_users)
+            edit_message_with_buttons(chat_id, callback_message_id, menu["text"], menu["buttons"])
+            return {"ok": True}
+
+        if callback_data.startswith("control_list:"):
+            if not is_admin(sender_id):
+                answer_callback_query(callback["id"], "Solo un admin puede usar este panel.")
+                return {"ok": True}
+
+            _, status_filter, page_value = callback_data.split(":", 2)
+            try:
+                page = max(0, int(page_value))
+            except ValueError:
+                page = 0
+
+            all_users = list_users("all")
+            users = all_users if status_filter == "all" else list_users(status_filter)
+            menu = build_control_menu(users, current_filter=status_filter, page=page, all_users=all_users)
+            answer_callback_query(callback["id"])
+            edit_message_with_buttons(chat_id, callback_message_id, menu["text"], menu["buttons"])
+            return {"ok": True}
+
+        if callback_data.startswith("control_user:"):
+            if not is_admin(sender_id):
+                answer_callback_query(callback["id"], "Solo un admin puede usar este panel.")
+                return {"ok": True}
+
+            _, user_id_value, status_filter, page_value = callback_data.split(":", 3)
+            if not str(user_id_value).isdigit():
+                answer_callback_query(callback["id"], "Usuario no válido.")
+                return {"ok": True}
+
+            user = get_user_details(int(user_id_value))
+            if not user:
+                answer_callback_query(callback["id"], "No encontré ese usuario.")
+                return {"ok": True}
+
+            try:
+                page = max(0, int(page_value))
+            except ValueError:
+                page = 0
+
+            menu = build_user_actions_menu(user, current_filter=status_filter, page=page)
+            answer_callback_query(callback["id"])
+            edit_message_with_buttons(chat_id, callback_message_id, menu["text"], menu["buttons"])
+            return {"ok": True}
+
+        if callback_data.startswith("control_detail:"):
+            if not is_admin(sender_id):
+                answer_callback_query(callback["id"], "Solo un admin puede usar este panel.")
+                return {"ok": True}
+
+            _, user_id_value, status_filter, page_value = callback_data.split(":", 3)
+            if not str(user_id_value).isdigit():
+                answer_callback_query(callback["id"], "Usuario no válido.")
+                return {"ok": True}
+
+            user = get_user_details(int(user_id_value))
+            if not user:
+                answer_callback_query(callback["id"], "No encontré ese usuario.")
+                return {"ok": True}
+
+            try:
+                page = max(0, int(page_value))
+            except ValueError:
+                page = 0
+
+            menu = build_user_details_menu(user, current_filter=status_filter, page=page)
+            answer_callback_query(callback["id"])
+            edit_message_with_buttons(chat_id, callback_message_id, menu["text"], menu["buttons"])
+            return {"ok": True}
+
+        if not _handle_access_gate(
+            sender_id,
+            chat_id,
+            sender_first_name,
+            sender_username,
+            callback_id=callback["id"],
+        ):
+            return {"ok": True}
 
         if callback_data.startswith("movie_suggest_yes:"):
             item_id = callback_data.split(":", 1)[1]
@@ -696,6 +989,8 @@ async def webhook(req: Request):
                     result.get("image"),
                     result.get("item_id"),
                     result.get("audio_tracks", []),
+                    result.get("media_source_id"),
+                    callback_message_id,
                 )
                 delete_message(chat_id, callback_message_id)
             else:
@@ -1204,7 +1499,8 @@ async def webhook(req: Request):
             image = result.get("image")
             item_id = result.get("item_id")
             audio_tracks = result.get("audio_tracks", [])
-            _send_jellyfin_video_response(chat_id, title, image, item_id, audio_tracks)
+            media_source_id = result.get("media_source_id")
+            _send_jellyfin_video_response(chat_id, title, image, item_id, audio_tracks, media_source_id, callback_message_id)
             if should_answer_callback_at_end:
                 answer_callback_query(callback["id"])
             return {"ok": True}
@@ -1285,6 +1581,21 @@ async def webhook(req: Request):
     elif "edited_message" in data:
         text = data["edited_message"].get("text")
         chat_id = data["edited_message"]["chat"]["id"]
+        sender = data["edited_message"].get("from") or {}
+        sender_id = sender.get("id")
+        sender_username = sender.get("username") or ""
+        sender_first_name = sender.get("first_name") or ""
+
+        record_user_activity(
+            sender_id,
+            chat_id=chat_id,
+            username=sender_username,
+            first_name=sender_first_name,
+            text=text,
+        )
+
+        if not _handle_access_gate(sender_id, chat_id, sender_first_name, sender_username):
+            return {"ok": True}
 
     else:
         logger.warning("⚠️ Update ignorado")
