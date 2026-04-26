@@ -1,6 +1,14 @@
 from app.tools.jellyfin import jellyfin
 from app.tools.youtube import download_youtube_audio, download_youtube_video
 import logging
+from app.core.chat_state import (
+    clear_prediction_session,
+    get_prediction_session,
+    set_prediction_session,
+    get_recipe_session
+)
+from app.tools.sports_prediction import delete_prediction, find_next_match, get_user_predictions, predict_match
+from app.utils.prediction_ui import history_menu, prediction_menu, prediction_result_menu
 
 logger = logging.getLogger("bot")
 EPISODES_PER_PAGE = 20
@@ -258,7 +266,7 @@ def handle_callback(callback):
 
     # ---------------------------------------------------------
     # 4. YOUTUBE -> DESCARGAR Y ENVIAR A TELEGRAM
-    # ---------------------------------------------------------
+# ---------------------------------------------------------
     if data.startswith("youtube_play:"):
         video_id = data.split(":", 1)[1]
         return download_youtube_video(video_id)
@@ -266,5 +274,146 @@ def handle_callback(callback):
     if data.startswith("music_play:"):
         video_id = data.split(":", 1)[1]
         return download_youtube_audio(video_id)
+
+# Predicciones deportivas
+    if data == "pred:match":
+        session = get_prediction_session(chat_id) or {}
+        session["step"] = "await_team_a"
+        set_prediction_session(chat_id, session)
+        
+        return {
+            "type": "text",
+            "text": "📝 Escribe el nombre del equipo principal:"
+        }
+
+    if data == "pred:rival_auto":
+        session = get_prediction_session(chat_id) or {}
+        team_a = session.get("team_a", "Real Madrid")
+
+        match = find_next_match(team_a)
+        if match:
+            team_b = match["opponent"]
+            result = predict_match(team_a, team_b, chat_id=chat_id)
+            clear_prediction_session(chat_id)
+            return prediction_result_menu(result, chat_id)
+        else:
+            return {"type": "text", "text": "No se encontró próximo partido"}
+
+    if data == "pred:rival_manual":
+        session = get_prediction_session(chat_id) or {}
+        session["step"] = "await_team_b"
+        set_prediction_session(chat_id, session)
+        
+        return {
+            "type": "text",
+            "text": "✏️ Escribe el nombre del rival:"
+        }
+
+    if data.startswith("pred:suggest:"):
+        parts = data.split(":")
+        field = parts[2] if len(parts) > 2 else ""
+        try:
+            index = int(parts[3])
+        except (IndexError, ValueError):
+            index = -1
+
+        session = get_prediction_session(chat_id) or {}
+        suggestions = session.get(f"{field}_suggestions") or []
+        if index < 0 or index >= len(suggestions):
+            return {"type": "text", "text": "No pude recuperar esa sugerencia. Escríbelo de nuevo."}
+
+        selected_team = suggestions[index]
+        if field == "team_a":
+            session["team_a"] = selected_team
+            session["step"] = "await_team_b"
+            session.pop("team_a_suggestions", None)
+            set_prediction_session(chat_id, session)
+            return {
+                "type": "menu",
+                "text": f"⚽ Equipo 1: {selected_team}\n\n¿Quién es el rival?",
+                "buttons": [
+                    [{"text": "📅 Próximo Rival", "callback_data": "pred:rival_auto"}],
+                    [{"text": "✏️ Escribir otro", "callback_data": "pred:rival_manual"}],
+                ],
+            }
+
+        if field == "team_b":
+            team_a = session.get("team_a")
+            if not team_a:
+                return {"type": "text", "text": "No encontré el equipo principal. Empezamos de nuevo con /prediccion."}
+            session["team_b"] = selected_team
+            session.pop("team_b_suggestions", None)
+            set_prediction_session(chat_id, session)
+            result = predict_match(team_a, selected_team, chat_id=chat_id)
+            clear_prediction_session(chat_id)
+            return prediction_result_menu(result, chat_id)
+
+    if data.startswith("pred:retry:"):
+        field = data.split(":")[2] if len(data.split(":")) > 2 else ""
+        session = get_prediction_session(chat_id) or {}
+        if field == "team_a":
+            session["step"] = "await_team_a"
+            session.pop("team_a_suggestions", None)
+            set_prediction_session(chat_id, session)
+            return {"type": "text", "text": "📝 Escribe el nombre del equipo principal:"}
+        if field == "team_b":
+            session["step"] = "await_team_b"
+            session.pop("team_b_suggestions", None)
+            set_prediction_session(chat_id, session)
+            return {"type": "text", "text": "✏️ Escribe el nombre del rival:"}
+
+    if data == "pred:history" or data.startswith("pred:history:"):
+        page = 0
+        if data.startswith("pred:history:"):
+            try:
+                page = int(data.split(":")[2])
+            except (IndexError, ValueError):
+                page = 0
+        predictions = get_user_predictions(chat_id)
+        return history_menu(predictions, page=page)
+
+    if data.startswith("pred:delete:"):
+        parts = data.split(":")
+        prediction_id = parts[2] if len(parts) > 2 else ""
+        page = 0
+        if len(parts) > 3:
+            try:
+                page = int(parts[3])
+            except ValueError:
+                page = 0
+        delete_prediction(chat_id, prediction_id)
+        predictions = get_user_predictions(chat_id)
+        max_page = max(0, (len(predictions) - 1) // 5) if predictions else 0
+        return history_menu(predictions, page=min(page, max_page))
+
+    if data == "pred:new":
+        clear_prediction_session(chat_id)
+        return prediction_menu()
+    
+    if data.startswith("recipe:select:"):
+        index = int(data.split(":")[2])
+
+        from app.core.chat_state import get_recipe_session, set_recipe_session
+        from app.tools.recipe import get_recipe_details
+        from app.utils.recipe_ui import recipe_detail_menu
+
+        session = get_recipe_session(chat_id)
+        recipes = session.get("results", [])
+
+        if index >= len(recipes):
+            return {"type": "text", "text": "❌ Receta no válida"}
+
+        recipe = recipes[index]
+
+        details = get_recipe_details(recipe["url"])
+
+        # 🔥 CLAVE: guardar estado de receta seleccionada y mostrar inmediatamente
+        set_recipe_session(chat_id, {
+            **session,
+            "step": "viewing_recipe",
+            "selected_recipe": recipe
+        })
+
+        return recipe_detail_menu(details)
 
     return None

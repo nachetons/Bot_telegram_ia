@@ -11,3 +11,4 @@ yt-dlp
 deep-translator
 gTTS
 faster-whisper
+Pillow

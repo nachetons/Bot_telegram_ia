@@ -11,6 +11,8 @@ from app.tools.wiki import wikipedia
 from app.tools.jellyfin import jellyfin
 from app.tools.youtube import download_best_youtube_video
 from app.tools.web import search_web_results
+from app.tools.sports_prediction import predict_match as sports_predict
+from app.tools.recipe import search_recipes, get_recipe_details
 from app.core.context_builder import build_context
 from app.core.refiner import refine_context
 from app.services.llm_provider import smart_llm
@@ -661,12 +663,33 @@ def agent(query: str):
             ]
             }, ["jellyfin_library"]
 
-    # -----------------------
+# -----------------------
     # YOUTUBE
     # -----------------------
     elif intent == "youtube":
         result = download_best_youtube_video(query)
         return result, ["youtube_tool"]
+
+# -----------------------
+    # SPORTS PREDICTION
+    # -----------------------
+    elif intent == "prediction" or _looks_like_numeric_query(query):
+        result = sports_predict(query)
+        if isinstance(result, dict) and result.get("error"):
+            return {"type": "text", "text": f"❌ {result['error']}"}, ["sports_prediction_tool"]
+        return result, ["sports_prediction_tool"]
+
+    # -----------------------
+    # RECIPE SEARCH (natural language)
+    # -----------------------
+    elif intent == "recipe" or any(marker in query.lower() for marker in ["receta", "cocina", "comer", "preparar", "ingredientes"]):
+        recipes = search_recipes(query)
+        if not recipes:
+            context, sources = build_context(query)
+            return {"type": "text", "text": f"🍳 Buscando receta...\n{context}"}, ["recipe_tool"]
+        
+        recipe_list = "\n".join(f"• {r['title']} - {r['readyInMinutes']} min | {r['servings']} porciones" for r in recipes.get("recipes", []))
+        return {"type": "text", "text": f"🍳 RECETAS ENCONTRADAS:\n\n{recipe_list}\n\n¿Quieres más detalles de alguna?"}, ["recipe_tool"]
 
     # -----------------------
     # DEFAULT (LLM)

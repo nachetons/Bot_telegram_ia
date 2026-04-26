@@ -3,22 +3,41 @@ import threading
 
 pending_followups = {}
 pending_followups_lock = threading.Lock()
+
 playlist_sessions = {}
 playlist_sessions_lock = threading.Lock()
+
 translate_sessions = {}
 translate_sessions_lock = threading.Lock()
+
 translate_results = {}
 translate_results_lock = threading.Lock()
+
 wallapop_sessions = {}
 wallapop_sessions_lock = threading.Lock()
+
 wallapop_result_sessions = {}
 wallapop_result_sessions_lock = threading.Lock()
+
 wallapop_item_messages = {}
 wallapop_item_messages_lock = threading.Lock()
+
 jellyfin_item_messages = {}
 jellyfin_item_messages_lock = threading.Lock()
+
 wallapop_alert_sessions = {}
 wallapop_alert_sessions_lock = threading.Lock()
+
+prediction_sessions = {}
+prediction_sessions_lock = threading.Lock()
+
+recipe_sessions = {}
+recipe_sessions_lock = threading.Lock()
+
+
+def get_pending_followup(chat_id):
+    with pending_followups_lock:
+        return pending_followups.get(chat_id)
 
 
 def set_pending_followup(chat_id, intent):
@@ -34,6 +53,36 @@ def pop_pending_followup(chat_id):
 def clear_pending_followup(chat_id):
     with pending_followups_lock:
         pending_followups.pop(chat_id, None)
+
+
+def set_prediction_session(chat_id, payload):
+    with prediction_sessions_lock:
+        prediction_sessions[chat_id] = payload
+
+
+def get_prediction_session(chat_id):
+    with prediction_sessions_lock:
+        return prediction_sessions.get(chat_id)
+
+
+def clear_prediction_session(chat_id):
+    with prediction_sessions_lock:
+        prediction_sessions.pop(chat_id, None)
+
+
+def set_recipe_session(chat_id, payload):
+    with recipe_sessions_lock:
+        recipe_sessions[chat_id] = payload
+
+
+def get_recipe_session(chat_id):
+    with recipe_sessions_lock:
+        return recipe_sessions.get(chat_id)
+
+
+def clear_recipe_session(chat_id):
+    with recipe_sessions_lock:
+        recipe_sessions.pop(chat_id, None)
 
 
 def set_playlist_session(chat_id, action, playlist_name):
@@ -169,6 +218,7 @@ def clear_base_chat_state(chat_id):
 
 
 def clear_all_chat_state(chat_id):
+    """Limpia TODO el estado del chat"""
     clear_pending_followup(chat_id)
     clear_playlist_session(chat_id)
     clear_translate_session(chat_id)
@@ -178,3 +228,5 @@ def clear_all_chat_state(chat_id):
     clear_wallapop_item_message(chat_id)
     clear_wallapop_alert_session(chat_id)
     clear_jellyfin_item_message(chat_id)
+    clear_prediction_session(chat_id)
+    clear_recipe_session(chat_id)

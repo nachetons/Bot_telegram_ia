@@ -11,6 +11,11 @@ recent_bot_messages = {}
 recent_bot_messages_lock = threading.Lock()
 
 
+def _is_known_edit_race(response_payload):
+    description = ((response_payload or {}).get("description") or "").lower()
+    return "message_id_invalid" in description or "message to edit not found" in description
+
+
 def _track_bot_message(chat_id, message_id):
     if chat_id is None or message_id is None:
         return
@@ -193,12 +198,19 @@ def edit_message(chat_id: str, message_id: int, text: str):
             },
             timeout=5
         )
-        print("TG EDIT:", r.status_code, r.text)
+        data = r.json()
+        if not _is_known_edit_race(data):
+            print("TG EDIT:", r.status_code, r.text)
+        if not data.get("ok"):
+            if _is_known_edit_race(data):
+                return False
 
         for chunk in chunks[1:]:
             send_message(chat_id, chunk)
+        return bool(data.get("ok"))
     except Exception as e:
         print("edit_message error:", e)
+    return False
 
 
 def edit_message_with_buttons(chat_id: str, message_id: int, text: str, buttons: list):
@@ -215,9 +227,16 @@ def edit_message_with_buttons(chat_id: str, message_id: int, text: str, buttons:
             },
             timeout=5
         )
-        print("TG EDIT BUTTONS:", r.status_code, r.text)
+        data = r.json()
+        if not _is_known_edit_race(data):
+            print("TG EDIT BUTTONS:", r.status_code, r.text)
+        if not data.get("ok"):
+            if _is_known_edit_race(data):
+                return False
+        return bool(data.get("ok"))
     except Exception as e:
         print("edit_message_with_buttons error:", e)
+    return False
 
 
 def delete_message(chat_id: str, message_id: int):
@@ -231,10 +250,13 @@ def delete_message(chat_id: str, message_id: int):
             timeout=5
         )
         print("TG DELETE:", r.status_code, r.text)
-        if r.ok:
+        data = r.json()
+        if data.get("ok"):
             _untrack_bot_message(chat_id, message_id)
+            return True
     except Exception as e:
         print("delete_message error:", e)
+    return False
 
 
 def send_chat_action(chat_id: str, action: str = "typing"):
@@ -327,6 +349,37 @@ def send_photo_bytes_with_buttons(chat_id: str, photo_bytes: bytes, filename: st
             return message_id
     except Exception as e:
         print("send_photo_bytes_with_buttons error:", e)
+    return None
+
+
+def send_local_photo_with_buttons(chat_id: str, image_path: str, caption: str, buttons: list):
+    try:
+        path = Path(image_path)
+        if not path.exists():
+            print("send_local_photo_with_buttons error: file not found", image_path)
+            return None
+
+        with path.open("rb") as image_file:
+            response = requests.post(
+                f"{BASE_URL}/sendPhoto",
+                data={
+                    "chat_id": chat_id,
+                    "caption": (caption or "")[:1024],
+                    "reply_markup": json.dumps({"inline_keyboard": buttons}, ensure_ascii=False),
+                },
+                files={
+                    "photo": image_file,
+                },
+                timeout=TELEGRAM_MEDIA_TIMEOUT,
+            )
+            print("TG LOCAL PHOTO BUTTONS:", response.status_code, response.text)
+            data = response.json()
+            if data.get("ok"):
+                message_id = data.get("result", {}).get("message_id")
+                _track_bot_message(chat_id, message_id)
+                return message_id
+    except Exception as e:
+        print("send_local_photo_with_buttons error:", e)
     return None
 
 

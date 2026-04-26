@@ -21,7 +21,7 @@ def call_llm_cloud(messages):
             OPENROUTER_URL,
             headers=headers,
             json=payload,
-            timeout=20  # 🔥 más realista
+            timeout=8
         )
 
         # -----------------------

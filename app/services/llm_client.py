@@ -14,7 +14,7 @@ def call_llm(messages):
         r = requests.post(
             LM_STUDIO_URL,
             json=payload,
-            timeout=(2, 5)  # 🔥 connect / read timeout
+            timeout=(1, 2)
         )
 
         # -----------------------

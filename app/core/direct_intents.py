@@ -84,4 +84,67 @@ def run_direct_intent(intent, query, chat_id=None):
         result = music_run(query, chat_id)
         return result, ["music_tool"]
 
+    if intent == "prediction":
+        from app.tools.sports_prediction import predict_match, get_user_predictions
+        
+        # Si query es vacío o solo espacios, devolver menú principal
+        if not query or not query.strip():
+            from app.utils.prediction_ui import prediction_menu
+            return prediction_menu(), ["sports_prediction_tool"]
+        
+        # Si es "history" o similar, mostrar historial
+        if query.lower() in ["historial", "mis predicciones", "history"]:
+            predictions = get_user_predictions(chat_id)
+            from app.utils.prediction_ui import history_menu
+            return history_menu(predictions), ["sports_prediction_tool"]
+        
+        # Caso principal: predecir partido
+        result = predict_match(query, chat_id=chat_id)
+        
+        if result.get("error"):
+            if result.get("suggestions"):
+                from app.core.chat_state import set_prediction_session
+                from app.utils.prediction_ui import team_suggestion_menu
+
+                field = result.get("field", "team_a")
+                payload = {
+                    "step": "await_team_a" if field == "team_a" else "await_team_b",
+                    f"{field}_suggestions": result.get("suggestions", []),
+                }
+                if result.get("team_a"):
+                    payload["team_a"] = result["team_a"]
+                set_prediction_session(chat_id, payload)
+                return team_suggestion_menu(result.get("original_query", query), result.get("suggestions", []), field), ["sports_prediction_tool"]
+            return {"type": "text", "text": f"❌ {result['error']}"}, ["sports_prediction_tool"]
+        
+        from app.utils.prediction_ui import prediction_result_menu
+        return prediction_result_menu(result, chat_id), ["sports_prediction_tool"]
+
+    if intent == "recipe":
+        from app.tools.recipe import search_recipes, get_user_recipes, clear_user_recipes
+        from app.utils.recipe_ui import recipe_history_menu, recipe_list_menu
+
+        # ---------------- HISTORIAL ----------------
+        if query.lower() in ["historial", "mis recetas", "history"]:
+            recipes = get_user_recipes(chat_id)
+            return recipe_history_menu(recipes), ["recipe_tool"]
+
+        # ---------------- CLEAR ----------------
+        if query.lower() in ["limpiar", "clear", "borrar"]:
+            clear_user_recipes(chat_id)
+            return {"type": "text", "text": "✅ Historial de recetas limpiado."}, ["recipe_tool"]
+
+        # ---------------- BUSCAR RECETAS ----------------
+        results = search_recipes(query)
+
+        # ⚠️ IMPORTANTE: guardar en sesión
+        from app.core.chat_state import set_recipe_session
+        set_recipe_session(chat_id, {
+            "step": "select_recipe",
+            "query": query,
+            "results": results["recipes"]
+        })
+
+        return recipe_list_menu(query, results["recipes"]), ["recipe_tool"]
+
     return agent(query)

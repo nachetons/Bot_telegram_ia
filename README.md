@@ -65,6 +65,7 @@ El objetivo no es solo “responder comandos”, sino ofrecer una experiencia fl
 | 🎵 Música | Audio, favoritos, recomendaciones y playlists locales |
 | 🌍 Traducción | Texto, nota de voz, TTS y flujo guiado |
 | 🛒 Wallapop | Búsqueda avanzada, fichas, gangas, paginación y alertas |
+| 🍳 Recetas | Búsqueda, predicción de éxito e historial culinario |
 | 🧰 Utilidades | Wiki, imágenes, tiempo, onboarding y ayuda |
 | 🔐 Control | Whitelist de usuarios, solicitudes de acceso y panel admin |
 | 🧠 IA general | Consultas libres sin slash cuando no hay un flujo específico |
@@ -154,6 +155,27 @@ Qué incluye:
 - pronunciación del texto traducido
 - audio TTS generado localmente
 
+### 🍳 Recetas Culinarias
+
+- `/receta <plato>` o `/recipe <dish>` → Predicción automática
+- `/receta` (vacío) → Modo guiado paso a paso
+- `/mis_recetas` - Ver historial de recetas guardadas
+- `/clear_recipes` - Limpiar historial
+
+Qué incluye:
+
+- búsqueda de recetas desde Google (scraping web)
+- predicción de éxito basada en complejidad e ingredientes
+- probabilidad calibrada con factores y riesgos
+- historial privado por usuario (`chat_id`)
+- **modo guiado**: `/receta` → pregunta "¿Qué receta?" → esperas tu respuesta
+- menús interactivos con botones
+
+**Flujo guiado:**
+1. `/receta` → Bot pregunta: "🍳 ¿Qué receta quieres buscar?"
+2. Escribes: "pasta carbonara"
+3. Bot analiza automáticamente y muestra predicción
+
 ### 🛒 Wallapop
 
 - `/wallapop`
@@ -162,7 +184,7 @@ Qué incluye:
 
 Qué incluye:
 
-- búsqueda guiada por producto
+- búsqueda guiada por producto (flujo paso a paso)
 - filtros de estado, precio, ubicación, radio y orden
 - soporte de ubicación compartida desde Telegram móvil
 - listado paginado
@@ -170,6 +192,17 @@ Qué incluye:
 - detección de anuncios reservados
 - indicador de ganga / razonable / caro
 - alertas guardadas con comprobación periódica
+
+**Flujo guiado:**
+1. `/wallapop` → pregunta producto
+2. Escribes "Rtx 4090" → guarda query y pide estado
+3. Seleccionas condición (nuevo, usado...) → pide precio
+4. Indicas rango o skip → pide ubicación
+5. Escribe ciudad o skip → pide radio
+6. Elige radio o skip → pide orden
+7. Seleccionas orden → ejecuta búsqueda
+
+**Comando directo:** `/wallapop Rtx 4090` → salta al paso de condición directamente.
 
 ### 🧰 Utilidades
 
@@ -336,35 +369,85 @@ Después:
 - eliges idioma
 - devuelve traducción y pronunciación
 
-### 6. Buscar un producto en Wallapop y crear una alerta
+### 7. Buscar una receta y predecir éxito
+
+```text
+/receta pasta carbonara
+→ Bot busca receta en API externa
+→ Analiza complejidad e ingredientes
+→ Muestra probabilidad de éxito + factores/riesgos
+```
+
+**Resultado esperado:**
+- Probabilidad calibrada (5%-95%)
+- Factores positivos y riesgos identificados
+- Opción de guardar en historial
+
+### 8. Consultar historial de recetas
+
+```text
+/mis_recetas
+→ Muestra todas tus recetas guardadas
+```
+
+### 7. Buscar un producto en Wallapop (flujo guiado)
+
+```text
+/wallapop
+→ ¿Qué producto quieres buscar?
+Rtx 4090
+→ ¿Qué estado quieres filtrar?
+[Seleccionas: Nuevo]
+→ Indica un rango de precio...
+skip
+→ Indica una localidad...
+skip
+→ ¿Cómo quieres ordenar los resultados?
+[Seleccionas: Recientes]
+```
+
+**Resultado esperado:** listado paginado con filtros aplicados.
+
+### 7. Buscar un producto en Wallapop (comando directo)
 
 ```text
 /wallapop steam deck
+→ ¿Qué estado quieres filtrar?
 ```
 
-Resultado esperado:
+Salta directamente al filtro de condición.
 
-- filtro por estado, precio, ubicación y orden
-- listado paginado
-- ficha detallada
-- creación de alerta desde la misma búsqueda
+### 8. Crear una alerta desde la búsqueda
+
+Desde el menú de resultados:
+- `🔔 Crear alerta` → pide precio máximo
+- Alerta guardada con comprobación periódica
+
+Gestión: `/mis_alertas` → ver, probar, borrar alertas.
 
 ### 7. Hacer una consulta libre al bot
 
 ```text
 cuantos goles lleva cristiano ronaldo
+quien invento internet
+explicame que es docker
 ```
 
 Resultado esperado:
 
 - si no estás dentro de un flujo guiado pendiente
 - y no estás usando un comando
-- el bot intenta resolver la consulta como pregunta general
+- el bot intenta resolver la consulta como pregunta general con RAG + LLM
+
+**Nota:** Los comandos slash (`/video`, `/wiki`, etc.) tienen prioridad sobre consultas libres.
 
 <a id="wallapop-y-alertas"></a>
 ## 🔔 Wallapop y alertas
 
-Wallapop ya funciona como una mini app dentro del bot.
+Wallapop ya funciona como una mini app dentro del bot con **dos modos de uso**:
+
+1. **Flujo guiado**: `/wallapop` → paso a paso (producto → estado → precio → ubicación → orden)
+2. **Comando directo**: `/wallapop Rtx 4090` → salta directamente a filtros
 
 ### Búsqueda guiada
 
@@ -373,10 +456,9 @@ Permite filtrar por:
 - producto
 - estado
 - rango de precio
-- ubicación escrita
-- ubicación compartida desde móvil
+- ubicación escrita o compartida desde móvil
 - radio de búsqueda
-- orden
+- orden (relevancia, recientes, precio, cercanos, gangas)
 
 Órdenes disponibles:
 
@@ -704,6 +786,9 @@ WALLAPOP_ALERT_INTERVAL_HOURS=8
 WALLAPOP_ALERT_INTERVAL_MINUTES=0
 WALLAPOP_ALERT_JITTER_MINUTES=90
 WALLAPOP_ALERT_BATCH_SIZE=3
+
+# Recipe tool (Spoonacular API)
+SPOONACULAR_API_KEY=tu_api_key_spoonacular
 ```
 
 Valores recomendados para `WHISPER_MODEL_SIZE`:
@@ -800,17 +885,18 @@ El archivo [BOTFATHER_COMMANDS.txt](\\192.168.1.46\Library\PYTHON\Agent\BOTFATHE
 
 El bot soporta actualmente:
 
-- comandos directos
-- callbacks
-- menús interactivos
-- sesiones guiadas
-- multiusuario por chat
+- comandos directos y modo guiado paso a paso
+- callbacks y menús interactivos
+- sesiones por usuario (multi-chat)
 - control de acceso por whitelist
-- reproducción de vídeo y audio
-- traducción de texto y voz
-- búsquedas guiadas de Wallapop
-- fichas y paginación de artículos
+- reproducción de vídeo y audio desde Jellyfin
+- traducción de texto y voz con TTS
+- búsquedas guiadas de Wallapop con dos modos:
+  - `/wallapop` → flujo guiado completo
+  - `/wallapop <producto>` → directo a filtros
+- fichas detalladas y paginación de artículos
 - alertas de Wallapop con worker en segundo plano
+- predicciones deportivas con análisis estadístico
 
 <a id="troubleshooting"></a>
 ## 🧯 Troubleshooting

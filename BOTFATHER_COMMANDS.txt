@@ -16,3 +16,14 @@ playlist - gestionar playlists locales
 wallapop - busquedas de articulos
 mis_alertas - ver y gestionar alertas de Wallapop
 control - panel de control y accesos del bot
+
+# PREDICCIONES DEPORTIVAS (Fútbol)
+prediccion - menu principal de predicciones deportivas
+prediction - alternativa a /prediccion
+mis_predicciones - ver historial de tus predicciones guardadas
+
+# RECETAS CULINARIAS
+receta - buscar receta y predecir éxito
+recipe - alternativa en inglés a /receta
+mis_recetas - ver historial de recetas guardadas
+clear_recipes - limpiar historial de recetas

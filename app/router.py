@@ -21,6 +21,7 @@ from app.services.telegram_client import (
     send_images,
     send_chat_action,
     send_local_video,
+    send_local_photo_with_buttons,
     send_temp_message,
     edit_message,
     edit_message_with_buttons,
@@ -51,23 +52,26 @@ from app.core.access_control import (
 from app.core.chat_state import (
     clear_all_chat_state,
     clear_base_chat_state,
-    clear_pending_followup,
-    clear_playlist_session,
-    clear_translate_session,
-    clear_translate_result,
     clear_jellyfin_item_message,
+    clear_pending_followup,
+    clear_prediction_session,
+    clear_playlist_session,
+    clear_recipe_session,
+    clear_translate_result,
+    clear_translate_session,
     clear_wallapop_alert_session,
     clear_wallapop_item_message,
     clear_wallapop_result_session,
     clear_wallapop_session,
-    get_playlist_session,
     get_jellyfin_item_message,
-    get_translate_result,
+    get_pending_followup,
+    get_playlist_session,
     get_translate_session,
+    get_translate_result,
+    get_wallapop_session,
     get_wallapop_alert_session,
     get_wallapop_item_message,
     get_wallapop_result_session,
-    get_wallapop_session,
     pop_pending_followup,
     set_pending_followup,
     set_playlist_session,
@@ -78,6 +82,9 @@ from app.core.chat_state import (
     set_wallapop_item_message,
     set_wallapop_result_session,
     set_wallapop_session,
+    get_prediction_session,
+    get_recipe_session,
+    set_recipe_session,
 )
 from app.tools.wallapop_alerts import create_or_replace_alert, delete_alert, get_alert_for_chat
 from app.core.wallapop_alert_worker import run_wallapop_alert_test
@@ -107,6 +114,7 @@ from app.utils.wallapop_ui import (
     wallapop_total_loaded_pages,
 )
 from app.utils.jellyfin_ui import build_jellyfin_audio_buttons
+from app.utils.prediction_ui import prediction_result_menu, team_suggestion_menu
 from app.utils.response_flow import (
     clear_placeholder,
     finalize_text_response,
@@ -370,13 +378,17 @@ def _send_wallapop_location_prompt(chat_id, placeholder_message_id=None, stop_pl
     )
 
 
+def _callback_message_has_media(callback_message):
+    return bool(callback_message.get("photo") or callback_message.get("caption"))
+
+
 def _needs_placeholder(text):
     normalized = (text or "").strip()
 
     if not normalized:
         return False
 
-    incomplete_commands = ["/start", "/helper", "/library", "/menu", "/catalog", "/wiki", "/img", "/image", "/video", "/tiempo", "/weather", "/youtube", "/music", "/playlist", "/translate", "/wallapop", "/mis_alertas"]
+    incomplete_commands = ["/start", "/helper", "/library", "/menu", "/catalog", "/wiki", "/img", "/image", "/video", "/tiempo", "/weather", "/youtube", "/music", "/playlist", "/translate", "/wallapop", "/mis_alertas", "/prediccion", "/prediction", "/mis_predicciones"]
     return normalized not in incomplete_commands
 
 
@@ -431,14 +443,13 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
         if text.startswith("/"):
             if text.startswith("/clear"):
                 _clear_chat_context(chat_id, remove_keyboard=True, source_message_id=source_message_id)
-            else:
+            elif not text.startswith("/wallapop") and not text.startswith("/mis_alertas"):
                 clear_base_chat_state(chat_id)
                 existing_jellyfin_item_message = get_jellyfin_item_message(chat_id)
                 if existing_jellyfin_item_message and existing_jellyfin_item_message.get("message_id"):
                     delete_message(chat_id, existing_jellyfin_item_message["message_id"])
                 clear_jellyfin_item_message(chat_id)
                 clear_wallapop_alert_session(chat_id)
-                clear_wallapop_session(chat_id)
         else:
             pending_intent = pop_pending_followup(chat_id)
             playlist_session = get_playlist_session(chat_id)
@@ -474,6 +485,127 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
                     "buttons": translate_language_buttons(),
                 }
                 sources = ["translate_tool"]
+
+        elif get_recipe_session(chat_id) and not text.startswith("/"):
+
+            from app.tools.recipe import search_recipes
+            from app.utils.recipe_ui import recipe_list_menu
+            
+            session = get_recipe_session(chat_id)
+            step = session.get("step")
+
+            # -------------------------
+            # BUSQUEDA DE RECETA POR TEXTO
+            # -------------------------
+            if step == "await_query":
+                query = text.strip()
+                
+                results = search_recipes(query)
+                recipes = results.get("recipes", [])
+                
+                menu = recipe_list_menu(query, recipes)
+                
+                # Limpiar sesión después de mostrar resultados
+                clear_recipe_session(chat_id)
+                
+                return True, menu, ["recipe_tool"]
+
+            # -------------------------
+            # MOSTRAR RECETA SELECCIONADA (solo si hay callback previo)
+            # -------------------------
+            if step == "viewing_recipe":
+                recipe = session.get("selected_recipe")
+                from app.tools.recipe import get_recipe_details
+                from app.utils.recipe_ui import recipe_detail_menu
+                
+                details = get_recipe_details(recipe["url"])
+                
+                return True, recipe_detail_menu(details), ["recipe_tool"]
+
+            # Si no hay step válido, simplemente mostrar el menú de nuevo
+            menu = recipe_list_menu(
+                session.get("query", ""),
+                session.get("results", [])
+            )
+            return True, menu, ["recipe_tool"]
+
+        elif get_prediction_session(chat_id) and not text.startswith("/"):
+            from app.core.chat_state import set_prediction_session
+            from app.tools.sports_prediction import find_next_match, predict_match, resolve_team_name
+            
+            session = get_prediction_session(chat_id)
+            step = session.get("step")
+            
+            if step == "await_team_a":
+                team_a = text.strip()
+                
+                if team_a:
+                    resolved = resolve_team_name(team_a)
+                    if resolved["status"] == "resolved":
+                        team_a = resolved["resolved_name"]
+                        session["team_a"] = team_a
+                        session["step"] = "await_team_b"
+                        session.pop("team_a_suggestions", None)
+                        set_prediction_session(chat_id, session)
+
+                        result = {
+                            "type": "menu",
+                            "text": f"⚽ Equipo 1: {team_a}\n\n¿Quién es el rival?",
+                            "buttons": [
+                                [{"text": "📅 Próximo Rival", "callback_data": "pred:rival_auto"}],
+                                [{"text": "✏️ Escribir otro", "callback_data": "pred:rival_manual"}]
+                            ]
+                        }
+                        sources = ["sports_prediction_tool"]
+                    elif resolved["status"] == "suggest":
+                        session["team_a_suggestions"] = resolved["suggestions"]
+                        session["step"] = "await_team_a"
+                        set_prediction_session(chat_id, session)
+                        result = team_suggestion_menu(team_a, resolved["suggestions"], "team_a")
+                        sources = ["sports_prediction_tool"]
+                    else:
+                        result = {"type": "text", "text": f"❌ No encontré ningún equipo parecido a '{team_a}'."}
+                        sources = ["sports_prediction_tool"]
+
+            elif step == "await_team_b":
+                team_b = text.strip()
+                resolved = resolve_team_name(team_b)
+                if resolved["status"] == "resolved":
+                    team_b = resolved["resolved_name"]
+                    session["team_b"] = team_b
+                    session["step"] = "analyzing"
+                    session.pop("team_b_suggestions", None)
+                    set_prediction_session(chat_id, session)
+
+                    prediction = predict_match(session["team_a"], team_b, chat_id=chat_id)
+                    result = prediction_result_menu(prediction, chat_id)
+                    clear_prediction_session(chat_id)
+                    sources = ["sports_prediction_tool"]
+                elif resolved["status"] == "suggest":
+                    session["team_b_suggestions"] = resolved["suggestions"]
+                    session["step"] = "await_team_b"
+                    set_prediction_session(chat_id, session)
+                    result = team_suggestion_menu(team_b, resolved["suggestions"], "team_b")
+                    sources = ["sports_prediction_tool"]
+                else:
+                    result = {"type": "text", "text": f"❌ No encontré ningún equipo parecido a '{team_b}'."}
+                    sources = ["sports_prediction_tool"]
+
+            elif step == "await_rival_auto":
+                team_a = session.get("team_a")
+                match = find_next_match(team_a)
+                if match:
+                    session["team_b"] = match["opponent"]
+                    session["step"] = "analyzing"
+                    set_prediction_session(chat_id, session)
+                    
+                    prediction = predict_match(session["team_a"], match["opponent"], chat_id=chat_id)
+                    result = prediction_result_menu(prediction, chat_id)
+                    clear_prediction_session(chat_id)
+                    sources = ["sports_prediction_tool"]
+                else:
+                    result = {"type": "text", "text": "No se encontró próximo partido"}
+                    sources = []
 
         elif get_wallapop_session(chat_id) and not text.startswith("/"):
             session = get_wallapop_session(chat_id)
@@ -538,6 +670,44 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
                     }
                 sources = ["wallapop_tool"]
 
+            elif step == "await_order":
+                session["step"] = "searching"
+                set_wallapop_session(chat_id, session)
+                send_chat_action(chat_id, "typing")
+                from app.tools.wallapop import search_wallapop
+                result = search_wallapop(session)
+
+                if isinstance(result, dict) and result.get("type") == "wallapop" and result.get("items"):
+                    result_session = wallapop_build_result_session(session, result)
+                    set_wallapop_result_session(chat_id, result_session)
+                    menu = wallapop_results_menu(result_session)
+                    edit_message_with_buttons(
+                        chat_id,
+                        placeholder_message_id or source_message_id,
+                        menu["text"],
+                        menu["buttons"],
+                    )
+                elif isinstance(result, dict) and result.get("type") == "wallapop":
+                    if result.get("buttons"):
+                        edit_message_with_buttons(
+                            chat_id,
+                            placeholder_message_id or source_message_id,
+                            result.get("text", "No pude obtener resultados de Wallapop."),
+                            result.get("buttons", []),
+                        )
+                    else:
+                        edit_message(
+                            chat_id,
+                            placeholder_message_id or source_message_id,
+                            result.get("text", "No pude obtener resultados de Wallapop."),
+                        )
+                else:
+                    edit_message(
+                        chat_id,
+                        placeholder_message_id or source_message_id,
+                        str(result.get("error") if isinstance(result, dict) else result),
+                    )
+
         elif wallapop_alert_session and not text.startswith("/"):
             if wallapop_alert_session.get("step") == "await_max_price":
                 try:
@@ -586,6 +756,24 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
         elif pending_intent:
             logger.info(f"↪️ USING PENDING INTENT: {pending_intent}")
             result, sources = run_direct_intent(pending_intent, text, chat_id)
+
+        elif get_wallapop_session(chat_id) and not text.startswith("/"):
+            session = get_wallapop_session(chat_id)
+            step = session.get("step")
+            
+            if step == "await_query":
+                session["query"] = text.strip()
+                session["step"] = "await_condition"
+                set_wallapop_session(chat_id, session)
+                result = {
+                    "type": "menu",
+                    "text": (
+                        f"Producto: {session['query']}\n\n"
+                        "¿Qué estado quieres filtrar?"
+                    ),
+                    "buttons": wallapop_condition_buttons(),
+                }
+                sources = ["wallapop_tool"]
 
         else:
             handled, result, sources = handle_slash_command(text, chat_id)
@@ -722,6 +910,16 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
             )
             return
 
+        if isinstance(result, dict) and result.get("type") == "prediction_card":
+            clear_placeholder(chat_id, placeholder_message_id, stop_placeholder)
+            send_local_photo_with_buttons(
+                chat_id,
+                result.get("image_path", ""),
+                result.get("text", ""),
+                result.get("buttons", []),
+            )
+            return
+
         # -----------------------
         # VIDEO MODE (JELLYFIN)
         # -----------------------
@@ -837,8 +1035,9 @@ async def webhook(req: Request):
     # -----------------------
     elif "callback_query" in data:
         callback = data["callback_query"]
-        chat_id = callback["message"]["chat"]["id"]
-        callback_message_id = callback["message"]["message_id"]
+        callback_message = callback["message"]
+        chat_id = callback_message["chat"]["id"]
+        callback_message_id = callback_message["message_id"]
         callback_data = callback.get("data", "")
         sender = callback.get("from") or {}
         sender_id = sender.get("id")
@@ -1566,22 +1765,46 @@ async def webhook(req: Request):
 
         # --- LÓGICA DE TEXTO (ERRORES / MENSAJES) ---
         if result.get("type") == "text":
-            edit_message(
-                chat_id,
-                callback_message_id,
-                result.get("text", "")
-            )
+            if _callback_message_has_media(callback_message):
+                delete_message(chat_id, callback_message_id)
+                send_message(chat_id, result.get("text", ""))
+            else:
+                edit_message(
+                    chat_id,
+                    callback_message_id,
+                    result.get("text", "")
+                )
             if should_answer_callback_at_end:
                 answer_callback_query(callback["id"])
             return {"ok": True}
 
         # --- LÓGICA DE MENÚ ---
         if result.get("type") == "menu":
-            edit_message_with_buttons(
+            if _callback_message_has_media(callback_message):
+                delete_message(chat_id, callback_message_id)
+                send_message_with_buttons(
+                    chat_id,
+                    result.get("text", "Menú"),
+                    result.get("buttons", [])
+                )
+            else:
+                edit_message_with_buttons(
+                    chat_id,
+                    callback_message_id,
+                    result.get("text", "Menú"),
+                    result.get("buttons", [])
+                )
+            if should_answer_callback_at_end:
+                answer_callback_query(callback["id"])
+            return {"ok": True}
+
+        if result.get("type") == "prediction_card":
+            delete_message(chat_id, callback_message_id)
+            send_local_photo_with_buttons(
                 chat_id,
-                callback_message_id,
-                result.get("text", "Menú"),
-                result.get("buttons", [])
+                result.get("image_path", ""),
+                result.get("text", ""),
+                result.get("buttons", []),
             )
             if should_answer_callback_at_end:
                 answer_callback_query(callback["id"])

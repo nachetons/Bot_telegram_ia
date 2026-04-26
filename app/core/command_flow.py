@@ -1,10 +1,14 @@
 from app.core.chat_state import (
     clear_base_chat_state,
+    clear_prediction_session,
+    clear_recipe_session,
     clear_wallapop_result_session,
+    set_prediction_session,
     set_pending_followup,
     set_translate_result,
     set_translate_session,
     set_wallapop_session,
+    set_recipe_session,
 )
 from app.core.access_control import is_admin, list_users
 from app.core.direct_intents import run_direct_intent
@@ -18,10 +22,18 @@ from app.utils.wallapop_ui import (
     wallapop_radius_buttons,
     wallapop_order_buttons,
 )
-
+from app.utils.prediction_ui import (
+    prediction_menu,
+    history_menu,
+    match_prediction_menu,
+    top_scorer_menu,
+    rival_analysis_menu
+)
+from app.utils.recipe_ui import recipe_menu, recipe_history_menu
 
 def handle_slash_command(text: str, chat_id):
     if text.startswith("/clear"):
+        clear_recipe_session(chat_id)
         return True, "🧹 He limpiado el contexto de este chat. Puedes empezar de nuevo cuando quieras.", []
 
     if text.startswith("/start"):
@@ -142,6 +154,49 @@ def handle_slash_command(text: str, chat_id):
     if text.startswith("/playlist"):
         command = text.replace("/playlist", "", 1).strip()
         result, sources = handle_playlist_command(command, chat_id, None)
+        return True, result, sources
+
+    if text.startswith("/prediccion") or text.startswith("/prediction"):
+        query = text.replace("/prediccion", "", 1).replace("/prediction", "", 1).strip()
+        clear_prediction_session(chat_id)
+
+        if not query:
+            return True, prediction_menu(), ["sports_prediction_tool"]
+
+        if query.lower() in ["historial", "mis predicciones", "history"]:
+            result, sources = run_direct_intent("prediction", "history", chat_id)
+            return True, result, sources
+
+
+    if text.startswith("/receta") or text.startswith("/recipe"):
+        from app.tools.recipe import search_recipes
+        from app.utils.recipe_ui import recipe_list_menu
+        
+        query = text.replace("/receta", "", 1).replace("/recipe", "", 1).strip()
+
+        if not query:
+            # Guardar sesión para esperar input del usuario
+            set_recipe_session(chat_id, {"step": "await_query"})
+            return True, {
+                "type": "menu",
+                "text": "🍳 ¿Qué receta quieres buscar?",
+                "buttons": []
+            }, ["recipe_tool"]
+
+        results = search_recipes(query)
+        
+        # Mostrar resultados inmediatamente y limpiar sesión
+        menu = recipe_list_menu(query, results["recipes"])
+        clear_recipe_session(chat_id)
+
+        return True, menu, ["recipe_tool"]
+
+    if text.startswith("/mis_recetas"):
+        result, sources = run_direct_intent("recipe", "history", chat_id)
+        return True, result, sources
+
+    if text.startswith("/clear_recipes"):
+        result, sources = run_direct_intent("recipe", "clear", chat_id)
         return True, result, sources
 
     if text.startswith("/"):
