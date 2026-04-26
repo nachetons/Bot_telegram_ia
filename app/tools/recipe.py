@@ -60,14 +60,16 @@ def _save_recipes(recipes: List[Dict]) -> None:
         json.dump({"recipes": recipes}, f, indent=2, ensure_ascii=False)
 
 
-def _save_prediction(chat_id: str, recipe_name: str, prediction: Dict) -> None:
+def _save_prediction(chat_id: str, recipe_name: str, url: str) -> None:
     recipes = _load_recipes()
 
-    data = prediction.copy()
-    data["chat_id"] = chat_id
-    data["recipe_name"] = recipe_name
-    data["created_at"] = datetime.now().isoformat()
-    data["id"] = f"recipe_{int(datetime.now().timestamp())}"
+    data = {
+        "chat_id": chat_id,
+        "recipe_name": recipe_name,
+        "url": url,
+        "created_at": datetime.now().isoformat(),
+        "id": f"recipe_{int(datetime.now().timestamp())}",
+    }
 
     recipes.append(data)
     _save_recipes(recipes)
@@ -192,8 +194,8 @@ def get_recipe_details(url: str) -> Dict:
 
         return {
             "title": title,
-            "ingredients": ingredients[:10],
-            "instructions": instructions[:10],
+            "ingredients": ingredients,
+            "instructions": instructions,
             "url": url,
         }
 
@@ -210,12 +212,11 @@ def get_recipe_details(url: str) -> Dict:
 # ------------------ MAIN ------------------
 
 def predict_match(recipe_name: str, chat_id: str) -> Tuple[Dict, List[str]]:
-    prediction = predict_recipe_success(recipe_name)
-
     recipes_data = search_recipes(recipe_name)
 
     ingredients = []
     instructions = []
+    url = ""
 
     if recipes_data.get("recipes"):
         url = recipes_data["recipes"][0].get("url")
@@ -225,13 +226,13 @@ def predict_match(recipe_name: str, chat_id: str) -> Tuple[Dict, List[str]]:
             ingredients = details.get("ingredients", [])
             instructions = details.get("instructions", [])
 
-    prediction["recipe_name"] = recipe_name
-    prediction["ingredients"] = ingredients
-    prediction["instructions"] = instructions
+    _save_prediction(chat_id, recipe_name, url)
 
-    _save_prediction(chat_id, recipe_name, prediction)
-
-    return prediction, ["recipe_tool"]
+    return {
+        "recipe_name": recipe_name,
+        "ingredients": ingredients,
+        "instructions": instructions,
+    }, ["recipe_tool"]
 
 
 # ------------------ HISTORY ------------------

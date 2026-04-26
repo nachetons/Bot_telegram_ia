@@ -175,18 +175,14 @@ def handle_slash_command(text: str, chat_id):
         query = text.replace("/receta", "", 1).replace("/recipe", "", 1).strip()
 
         if not query:
-            # Guardar sesión para esperar input del usuario
-            set_recipe_session(chat_id, {"step": "await_query"})
-            return True, {
-                "type": "menu",
-                "text": "🍳 ¿Qué receta quieres buscar?",
-                "buttons": []
-            }, ["recipe_tool"]
+            # Solo mostrar menú principal, sin guardar sesión
+            from app.utils.recipe_ui import recipe_menu
+            return True, recipe_menu(), ["recipe_tool"]
 
         results = search_recipes(query)
         
         # Mostrar resultados inmediatamente y limpiar sesión
-        menu = recipe_list_menu(query, results["recipes"])
+        menu = recipe_list_menu(query, results.get("recipes", []))
         clear_recipe_session(chat_id)
 
         return True, menu, ["recipe_tool"]

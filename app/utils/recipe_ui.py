@@ -39,8 +39,8 @@ def recipe_detail_menu(details: dict) -> dict:
     ingredients_list = details.get("ingredients", [])
     steps_list = details.get("instructions", [])
 
-    ingredients = "\n".join(f"• {i}" for i in ingredients_list[:10]) or "No encontrados"
-    steps = "\n".join(f"{i+1}. {s}" for i, s in enumerate(steps_list[:5])) or "No encontrados"
+    ingredients = "\n".join(f"• {i}" for i in ingredients_list) or "No encontrados"
+    steps = "\n".join(f"{i+1}. {s}" for i, s in enumerate(steps_list)) or "No encontrados"
 
     text = (
         f"🍽️ {details.get('title', 'Receta')}\n\n"

@@ -157,24 +157,53 @@ Qué incluye:
 
 ### 🍳 Recetas Culinarias
 
-- `/receta <plato>` o `/recipe <dish>` → Predicción automática
+- `/receta <plato>` o `/recipe <dish>` → Búsqueda directa en Cookpad
 - `/receta` (vacío) → Modo guiado paso a paso
-- `/mis_recetas` - Ver historial de recetas guardadas
+- `/mis_recetas` - Ver historial de recetas guardadas con botones
 - `/clear_recipes` - Limpiar historial
 
 Qué incluye:
 
-- búsqueda de recetas desde Google (scraping web)
-- predicción de éxito basada en complejidad e ingredientes
-- probabilidad calibrada con factores y riesgos
-- historial privado por usuario (`chat_id`)
+- búsqueda de recetas desde Cookpad (scraping web)
+- **historial privado por usuario** (`chat_id`) con fecha de guardado
 - **modo guiado**: `/receta` → pregunta "¿Qué receta?" → esperas tu respuesta
-- menús interactivos con botones
+- menús interactivos con botones para cada resultado encontrado
+- visualización detallada de ingredientes y pasos (todos los listados)
+- guardado automático al seleccionar una receta
 
 **Flujo guiado:**
 1. `/receta` → Bot pregunta: "🍳 ¿Qué receta quieres buscar?"
 2. Escribes: "pasta carbonara"
-3. Bot analiza automáticamente y muestra predicción
+3. Bot busca en Cookpad y muestra menú con resultados encontrados (botones)
+4. Al hacer clic en una receta, se muestran detalles completos:
+   - Título de la receta
+   - Ingredientes (todos los listados)
+   - Pasos de elaboración (todos los pasos)
+5. La receta se guarda automáticamente en el historial
+
+**Flujo de búsqueda:**
+1. `/receta` → Muestra menú principal con opciones
+2. Botón "🔍 Buscar Receta" → Pregunta por la receta
+3. Escribes nombre del plato (ej: "paella")
+4. Bot busca en Cookpad y muestra lista de recetas encontradas con botones
+5. Al hacer clic en una receta, se muestran detalles completos
+
+**Historial de recetas:**
+- `/mis_recetas` → Muestra todas las recetas guardadas con fecha
+- Cada receta tiene un botón "🍽️" para ver sus detalles completos
+- Botón "↩️ Volver" para regresar al menú principal
+- `/clear_recipes` → Borra todo el historial
+
+**Flujo de historial:**
+1. `/mis_recetas` o botón "📚 Mi Historial" en menú principal
+2. Muestra lista de recetas con fecha de guardado
+3. Haz clic en una receta para ver detalles completos (ingredientes + pasos)
+4. Botón "↩️ Volver" regresa al menú del historial
+
+**Comandos directos:**
+- `/receta paella` → Busca y muestra resultados directamente
+- `/mis_recetas` → Muestra historial completo con botones
+- `/clear_recipes` → Limpia todas las recetas guardadas
 
 ### 🛒 Wallapop
 

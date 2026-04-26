@@ -319,7 +319,24 @@ def _chat_worker_loop(chat_id):
     while True:
         text, placeholder_message_id, source_message_id = queue.get()
         try:
-            _process_locked(text, chat_id, placeholder_message_id, source_message_id)
+            logger.info(f"🔧 Worker processing for chat_id={chat_id}, text={text}")
+            result = _process_locked(text, chat_id, placeholder_message_id, source_message_id)
+            logger.info(f"✅ Worker completed for chat_id={chat_id}: {result}")
+
+            # 🔥 AÑADE ESTO
+            if result:
+                success, payload, sources = result
+
+                if payload:
+                    if payload["type"] == "menu":
+                        send_message_with_buttons(
+                            chat_id,
+                            payload["text"],
+                            payload["buttons"]
+                        )
+                    elif payload["type"] == "text":
+                        send_message(chat_id, payload["text"])
+
         finally:
             queue.task_done()
 
@@ -493,20 +510,43 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
             
             session = get_recipe_session(chat_id)
             step = session.get("step")
+            
+            logger.info(f"DEBUG: Recipe session found, chat_id={chat_id}, step={step}, text={text}")
 
             # -------------------------
             # BUSQUEDA DE RECETA POR TEXTO
             # -------------------------
             if step == "await_query":
+                logger.info(f"DEBUG: Entering await_query block")
                 query = text.strip()
                 
                 results = search_recipes(query)
                 recipes = results.get("recipes", [])
+                logger.info(f"DEBUG: Found {len(recipes)} recipes")
+                
+                # Guardar resultados en la sesión antes de mostrar el menú
+                callback_message_id = session.get("callback_message_id")
+                set_recipe_session(chat_id, {
+                    "step": "await_selection",
+                    "query": query,
+                    "results": recipes,
+                    "callback_message_id": callback_message_id
+                })
+                
+                # Guardar la receta en el historial
+                from app.tools.recipe import _save_prediction, predict_recipe_success
+                
+                # Usar la primera URL de los resultados encontrados
+                first_url = recipes[0].get("url") if recipes else ""
+                
+                prediction = predict_recipe_success(query)
+                prediction["recipe_name"] = query
+                prediction["probability"] = 75
+                prediction["url"] = first_url
+                
+                _save_prediction(chat_id, query, first_url)
                 
                 menu = recipe_list_menu(query, recipes)
-                
-                # Limpiar sesión después de mostrar resultados
-                clear_recipe_session(chat_id)
                 
                 return True, menu, ["recipe_tool"]
 
@@ -521,6 +561,15 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
                 details = get_recipe_details(recipe["url"])
                 
                 return True, recipe_detail_menu(details), ["recipe_tool"]
+
+            # Si hay resultados guardados pero no estamos viendo una receta
+            if step == "await_selection":
+                query = session.get("query", "")
+                recipes = session.get("results", [])
+                
+                if recipes:
+                    menu = recipe_list_menu(query, recipes)
+                    return True, menu, ["recipe_tool"]
 
             # Si no hay step válido, simplemente mostrar el menú de nuevo
             menu = recipe_list_menu(
@@ -783,6 +832,17 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
 
         logger.info(f"🧠 RESULT: {result}")
 
+        # Convertir tuple (True/False, result_dict/list, sources) a dict
+        if isinstance(result, tuple) and len(result) >= 2:
+            success = result[0]
+            result_data = result[1]
+            sources = result[2] if len(result) > 2 else []
+            
+            if isinstance(result_data, dict):
+                result = result_data
+            elif isinstance(result_data, str):
+                result = {"type": "text", "text": result_data}
+
         # -----------------------
         # ERROR MODE
         # -----------------------
@@ -905,9 +965,10 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
             clear_placeholder(chat_id, placeholder_message_id, stop_placeholder)
             send_message_with_buttons(
                 chat_id,
-                result.get("text", "Menú"),
-                result.get("buttons", [])
+                result.get("text", ""),
+                result.get("buttons", []),
             )
+            
             return
 
         if isinstance(result, dict) and result.get("type") == "prediction_card":
@@ -1863,6 +1924,8 @@ async def webhook(req: Request):
         placeholder_message_id = send_temp_message(chat_id, "Buscando...")
         send_chat_action(chat_id, "typing")
 
-    process(text, chat_id, placeholder_message_id, message.get("message_id"))
+    logger.info(f"🔄 Calling process for chat_id={chat_id}, text={text}")
+    result = process(text, chat_id, placeholder_message_id, message.get("message_id"))
+    logger.info(f"✅ Process completed: {result}")
 
     return {"ok": True}

@@ -390,6 +390,26 @@ def handle_callback(callback):
         clear_prediction_session(chat_id)
         return prediction_menu()
     
+    if data == "recipe:search":
+        from app.core.chat_state import set_recipe_session, clear_recipe_session
+        
+        clear_recipe_session(chat_id)
+        
+        callback_message_id = callback["message"]["message_id"]
+        
+        set_recipe_session(chat_id, {
+            "step": "await_query",
+            "callback_message_id": callback_message_id
+        })
+        
+        logger.info(f"DEBUG CALLBACK: recipe:search for chat_id={chat_id}, step=await_query")
+        
+        return {
+            "type": "menu",
+            "text": "🔍 ¿Qué receta quieres buscar?",
+            "buttons": []
+        }
+
     if data.startswith("recipe:select:"):
         index = int(data.split(":")[2])
 
@@ -400,7 +420,7 @@ def handle_callback(callback):
         session = get_recipe_session(chat_id)
         recipes = session.get("results", [])
 
-        if index >= len(recipes):
+        if not recipes or index >= len(recipes):
             return {"type": "text", "text": "❌ Receta no válida"}
 
         recipe = recipes[index]
@@ -415,5 +435,71 @@ def handle_callback(callback):
         })
 
         return recipe_detail_menu(details)
+
+    if data == "recipe:history":
+        from app.tools.recipe import get_user_recipes, get_recipe_details
+        from app.utils.recipe_ui import recipe_detail_menu
+        
+        recipes = get_user_recipes(chat_id)
+        
+        if not recipes:
+            return {"type": "text", "text": "📭 No tienes recetas guardadas aún."}
+        
+        buttons = []
+        for r in reversed(recipes):
+            recipe_name = r.get('recipe_name', 'Receta')
+            created_at = r.get('created_at', '')[:10] if r.get('created_at') else ''
+            
+            buttons.append([
+                {
+                    "text": f"🍽️ {recipe_name}",
+                    "callback_data": f"recipe:history_select:{r['id']}"
+                }
+            ])
+        
+        buttons.append([{"text": "↩️ Volver", "callback_data": "recipe:back"}])
+        
+        return {
+            "type": "menu",
+            "text": "📚 HISTORIAL DE RECETAS\nSelecciona una receta para ver detalles:",
+            "buttons": buttons
+        }
+
+    if data.startswith("recipe:history_select:"):
+        from app.tools.recipe import get_user_recipes, get_recipe_details
+        from app.utils.recipe_ui import recipe_detail_menu
+        
+        recipe_id = data.split(":")[2]
+        
+        recipes = get_user_recipes(chat_id)
+        recipe_data = next((r for r in recipes if r.get('id') == recipe_id), None)
+        
+        logger.info(f"DEBUG: Selecting recipe {recipe_id}, data={recipe_data}")
+        
+        if not recipe_data:
+            return {"type": "text", "text": "❌ Receta no encontrada en el historial"}
+        
+        url = recipe_data.get("url")
+        if not url:
+            return {"type": "text", "text": "❌ URL de receta perdida. Busca la receta de nuevo."}
+        
+        logger.info(f"DEBUG: Fetching details for URL: {url}")
+        details = get_recipe_details(url)
+        logger.info(f"DEBUG: Details fetched - Title: {details.get('title')}, Ingredients count: {len(details.get('ingredients', []))}, Instructions count: {len(details.get('instructions', []))}")
+
+        return recipe_detail_menu(details)
+
+    if data == "recipe:back":
+        from app.core.chat_state import clear_recipe_session
+        from app.utils.recipe_ui import recipe_menu
+        
+        clear_recipe_session(chat_id)
+        return recipe_menu()
+
+    if data == "recipe:clear":
+        from app.tools.recipe import clear_user_recipes
+        
+        clear_user_recipes(chat_id)
+        return {"type": "text", "text": "✅ Historial de recetas limpiado."}
 
     return None
