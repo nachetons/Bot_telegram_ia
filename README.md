@@ -694,8 +694,11 @@ Agent/
     │   ├── callback_handler.py
     │   ├── chat_state.py
     │   ├── command_flow.py
+    │   ├── context_builder.py
     │   ├── direct_intents.py
     │   ├── playlist_flow.py
+    │   ├── prompt.py
+    │   ├── refiner.py
     │   ├── router_intent.py
     │   ├── translate_flow.py
     │   └── wallapop_alert_worker.py
@@ -709,6 +712,9 @@ Agent/
     │   ├── images.py
     │   ├── jellyfin.py
     │   ├── music_local.py
+    │   ├── recipe.py          # ⭐ NUEVO: Búsqueda y gestión de recetas Cookpad
+    │   ├── scraper.py
+    │   ├── sports_prediction.py
     │   ├── transcription.py
     │   ├── translate.py
     │   ├── wallapop.py
@@ -722,9 +728,15 @@ Agent/
         ├── bot_ui.py
         ├── jellyfin_ui.py
         ├── playlist_ui.py
+        ├── prediction_ui.py     # ⭐ NUEVO: UI para predicciones deportivas
+        ├── recipe_ui.py         # ⭐ NUEVO: UI para recetas (menús, historial)
         ├── response_flow.py
         └── wallapop_ui.py
 ```
+
+**Nuevas herramientas añadidas:**
+- `recipe.py` + `recipe_ui.py`: Sistema completo de búsqueda y gestión de recetas culinarias desde Cookpad
+- `prediction_ui.py`: Interfaz para predicciones deportivas con análisis estadístico
 
 <a id="sesiones-por-usuario"></a>
 ## 👤 Sesiones por usuario
