@@ -159,6 +159,7 @@ def handle_slash_command(text: str, chat_id):
     if text.startswith("/prediccion") or text.startswith("/prediction"):
         query = text.replace("/prediccion", "", 1).replace("/prediction", "", 1).strip()
         clear_prediction_session(chat_id)
+        clear_recipe_session(chat_id)
 
         if not query:
             return True, prediction_menu(), ["sports_prediction_tool"]
