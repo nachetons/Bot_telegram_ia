@@ -1,4 +1,5 @@
-import json
+﻿import json
+import logging
 import requests
 import threading
 from itertools import combinations
@@ -9,6 +10,9 @@ BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 TELEGRAM_MEDIA_TIMEOUT = 30
 recent_bot_messages = {}
 recent_bot_messages_lock = threading.Lock()
+
+logger = logging.getLogger("telegram_client")
+
 
 
 def _is_known_edit_race(response_payload):
@@ -511,31 +515,124 @@ def send_video(chat_id: str, video_url: str, caption: str = None):
 
 
 def send_local_video(chat_id: str, video_path: str, caption: str = None):
-    try:
-        path = Path(video_path)
-        if not path.exists():
-            print("send_local_video error: file not found", video_path)
-            return
+    """EnvÃ­a video como Video o Document segÃºn el tamaÃ±o."""
+    logger.info(f"ðŸŽ¬ SEND VIDEO: chat={chat_id}, path={video_path}")
 
-        with path.open("rb") as video_file:
-            response = requests.post(
-                f"{BASE_URL}/sendVideo",
-                data={
-                    "chat_id": chat_id,
-                    "caption": (caption or "")[:1024],
-                    "supports_streaming": "true",
-                },
-                files={
-                    "video": video_file
-                },
-                timeout=120
-            )
-            print("TG LOCAL VIDEO:", response.status_code, response.text)
-            data = response.json()
-            if data.get("ok"):
-                _track_bot_message(chat_id, data.get("result", {}).get("message_id"))
+    # Obtener tamaÃ±o del archivo
+    try:
+        file_size = Path(video_path).stat().st_size
+        size_mb = file_size / (1024 * 1024)
+        logger.info(f"ðŸ“Š FILE SIZE: {size_mb:.2f} MB")
+
+        # Si es > 50MB, enviar como documento directamente
+        if size_mb > 50:
+            return _send_video_as_document(chat_id, video_path, caption, size_mb)
     except Exception as e:
-        print("send_local_video error:", e)
+        logger.warning(f"âš ï¸ Error getting file size: {e}")
+
+    # Intentar primero con sendVideo (hasta 20MB)
+    try:
+        result = _send_video_as_video(chat_id, video_path, caption)
+        if result:
+            return result
+    except Exception as e:
+        logger.warning(f"âš ï¸ Video too large for sendVideo: {e}")
+
+    # Si falla, intentar como documento (hasta 50MB)
+    try:
+        _send_video_as_document(chat_id, video_path, caption)
+    except Exception as e:
+        logger.error(f"âŒ Document upload failed: {e}")
+
+
+def _send_video_as_video(chat_id: str, video_path: str, caption: str = None):
+    """EnvÃ­a el video como tipo Video (hasta 20MB)."""
+    path = Path(video_path)
+    if not path.exists():
+        logger.error(f"âŒ FILE NOT FOUND: {video_path}")
+        return False
+
+    with path.open("rb") as video_file:
+        response = requests.post(
+            f"{BASE_URL}/sendVideo",
+            data={
+                "chat_id": chat_id,
+                "caption": (caption or "")[:1024],
+                "supports_streaming": "true",
+            },
+            files={
+                "video": video_file
+            },
+            timeout=120
+        )
+        logger.info(f"ðŸ“© TG VIDEO RESPONSE: {response.status_code} - {response.text[:200]}")
+        data = response.json()
+
+        if data.get("ok"):
+            _track_bot_message(chat_id, data.get("result", {}).get("message_id"))
+            return True
+
+        # Si es 413 (Request Entity Too Large), devolver False para intentar como documento
+        if data.get("error_code") == 413:
+            logger.warning(f"âš ï¸ Video too large ({data.get('description')})")
+            return False
+
+        return False
+
+
+def _send_video_as_document(chat_id: str, video_path: str, caption: str = None, size_mb: float = None):
+    """EnvÃ­a el video como Document (hasta 50MB)."""
+    path = Path(video_path)
+    if not path.exists():
+        logger.error(f"âŒ FILE NOT FOUND: {video_path}")
+        return False
+
+    # Si no se pasÃ³ size_mb, calcularlo
+    if size_mb is None:
+        try:
+            size_mb = path.stat().st_size / (1024 * 1024)
+        except:
+            size_mb = "desconocido"
+
+    with path.open("rb") as video_file:
+        response = requests.post(
+            f"{BASE_URL}/sendDocument",
+            data={
+                "chat_id": chat_id,
+                "caption": (caption or "")[:1024],
+                "file_name": Path(video_path).name,
+            },
+            files={
+                "document": video_file
+            },
+            timeout=120
+        )
+        logger.info(f"ðŸ“© TG DOCUMENT RESPONSE: {response.status_code} - {response.text[:200]}")
+        data = response.json()
+
+        if data.get("ok"):
+            _track_bot_message(chat_id, data.get("result", {}).get("message_id"))
+            return True
+
+        # Si falla por tamaÃ±o > 50MB
+        if data.get("error_code") == 413:
+            logger.error(f"âŒ Document too large ({size_mb:.2f} MB > 50 MB limit)")
+
+            # Enviar mensaje al usuario con el peso del archivo
+            from app.services.telegram_client import send_message
+
+            msg = (
+                f"âš ï¸ El video es muy pesado para enviarlo como documento.\n\n"
+                f"ðŸ“¦ Peso: {size_mb:.2f} MB\n"
+                f"ðŸ’¾ LÃ­mite Telegram: 50 MB\n\n"
+                f"ðŸ’¡ Sugerencia: Usa un compresor de video o busca una versiÃ³n mÃ¡s corta."
+            )
+
+            send_message(chat_id, msg)
+            return False
+
+        return False
+
 
 
 def send_local_document(chat_id: str, file_path: str, caption: str = None):
@@ -593,8 +690,10 @@ def send_local_audio(chat_id: str, audio_path: str, title: str = None, performer
         print("send_local_audio error:", e)
 
 
-def send_message_with_buttons(chat_id: str, text: str, buttons: list):
+def send_message_with_buttons(chat_id: str, text: str, buttons: list, edit: bool = False):
+    """EnvÃ­a un mensaje con botones o edita el Ãºltimo si edit=True."""
 
+    last_msg_id = None
     payload = {
         "chat_id": chat_id,
         "text": text,
@@ -604,23 +703,57 @@ def send_message_with_buttons(chat_id: str, text: str, buttons: list):
     }
 
     try:
+        if edit:
+            # Borrar el mensaje anterior antes de enviar el nuevo
+            from app.core.chat_state import get_last_message_id, set_last_message_id
+
+            last_msg_id = get_last_message_id(chat_id)
+            logger.info(f"ðŸ—‘ EDIT MODE: chat={chat_id}, last_msg_id={last_msg_id}")
+
+            if last_msg_id:
+                # Primero borra el mensaje anterior
+                resp = requests.post(
+                    f"{BASE_URL}/deleteMessage",
+                    json={"chat_id": chat_id, "message_id": last_msg_id},
+                    timeout=5
+                )
+                logger.info(f"ðŸ—‘ DELETE RESPONSE: {resp.status_code} - {resp.text}")
+
+            # Siempre usar sendMessage para enviar el nuevo mensaje despuÃ©s de borrar
+            endpoint = "sendMessage"
+        else:
+            endpoint = "sendMessage"
+
         r = requests.post(
-            f"{BASE_URL}/sendMessage",
+            f"{BASE_URL}/{endpoint}",
             json=payload,
             timeout=10
         )
 
-        # 🔥 DEBUG REAL (CLAVE)
-        print("TELEGRAM RESPONSE:", r.status_code, r.text)
+        # ðŸ”¥ DEBUG REAL (CLAVE)
+        logger.info(f"ðŸ“© TELEGRAM {endpoint}: {r.status_code} - {r.text[:200]}")
         data = r.json()
         if data.get("ok"):
-            message_id = data.get("result", {}).get("message_id")
+            message_id = data.get("result", {}).get("message_id") or last_msg_id
+
+            # Si era edit pero no habÃ­a mensaje anterior, usar el nuevo message_id
+            if edit and not last_msg_id:
+                message_id = data.get("result", {}).get("message_id")
+
             _track_bot_message(chat_id, message_id)
+
+            # Actualizar el Ãºltimo message_id para la prÃ³xima ediciÃ³n
+            from app.core.chat_state import set_last_message_id
+            set_last_message_id(chat_id, message_id)
+
+            logger.info(f"âœ… MESSAGE SAVED: msg_id={message_id}")
             return message_id
 
+
     except Exception as e:
-        print("Error send buttons:", e)
+        logger.error(f"âŒ Error send buttons: {e}")
     return None
+
 
 
 def edit_photo_with_buttons(chat_id: str, message_id: int, image_url: str, caption: str, buttons: list):
@@ -656,5 +789,38 @@ def answer_callback_query(callback_query_id, text=None):
     }
     if text:
         payload["text"] = text
-        
+
     requests.post(url, json=payload)
+
+
+# Final Telegram size policy for local YouTube videos.
+# <= 20 MB: sendVideo. > 20 MB and <= 50 MB: sendDocument. > 50 MB: reject.
+def send_local_video(chat_id: str, video_path: str, caption: str = None):
+    path = Path(video_path)
+    if not path.exists():
+        logger.error(f"FILE NOT FOUND: {video_path}")
+        return False
+
+    size_bytes = path.stat().st_size
+    size_mb = size_bytes / (1024 * 1024)
+    logger.info(f"SEND VIDEO: chat={chat_id}, path={video_path}, size={size_mb:.2f} MB")
+
+    if size_bytes > 50_000_000:
+        send_message(
+            chat_id,
+            (
+                "El video es demasiado pesado para Telegram.\n\n"
+                f"Peso: {size_mb:.2f} MB\n"
+                "Limite como documento: 50 MB"
+            ),
+        )
+        return False
+
+    if size_bytes > 20_000_000:
+        return _send_video_as_document(chat_id, video_path, caption, size_mb)
+
+    sent = _send_video_as_video(chat_id, video_path, caption)
+    if sent:
+        return sent
+
+    return _send_video_as_document(chat_id, video_path, caption, size_mb)

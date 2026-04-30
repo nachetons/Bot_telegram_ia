@@ -1,150 +1,150 @@
-from app.services.agent import agent
-from app.tools.jellyfin import jellyfin
+"""Intent runner using the dispatcher pattern."""
+
+from typing import Any, Dict, List, Tuple
+
+# Import para inicializar handlers
+from app.core import intent_handlers
 
 
-def run_direct_intent(intent, query, chat_id=None):
-    if intent == "movies":
-        result = jellyfin.search_movie(query)
-        result_type = result.get("type")
+def run_direct_intent(intent: str, query: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+    """Ejecuta un intent usando el dispatcher centralizado."""
+    from app.core.intent_dispatcher import intent_dispatcher
+    
+    handler = intent_dispatcher.get_handler(intent)
+    if not handler:
+        return False, {"type": "text", "text": f"Intent '{intent}' no encontrado"}, []
+    
+    handled, result, sources = handler.handle(query, chat_id)
+    return handled, result, sources
 
-        if result_type == "uncertain":
-            return {"type": "text", "text": result.get("message", "No se encontraron películas")}, ["jellyfin_tool"]
 
-        if result_type == "suggestion":
-            movie = result.get("result") or {}
-            item_id = movie.get("Id")
-            if item_id:
-                return {
-                    "type": "menu",
-                    "text": result.get("message", "¿Te refieres a esta película?"),
-                    "buttons": [
-                        [
-                            {"text": "✅ Sí", "callback_data": f"movie_suggest_yes:{item_id}"},
-                            {"text": "❌ No", "callback_data": "movie_suggest_no"},
-                        ]
-                    ],
-                }, ["jellyfin_tool"]
+# Funciones de compatibilidad para command_flow.py
+def run_movies_intent(query: str, chat_id: int):
+    """Ejecuta el intent movies con la lógica real."""
+    from app.tools.jellyfin import jellyfin
+    
+    if not query.strip():
+        return True, {"type": "text", "text": "¿Qué película quieres ver?"}, ["jellyfin_tool"]
+    
+    result = jellyfin.search_movie(query)
+    result_type = result.get("type")
 
-            return {"type": "text", "text": result.get("message", "No estoy seguro de la película")}, ["jellyfin_tool"]
+    if result_type == "uncertain":
+        return True, {"type": "text", "text": result.get("message", "No se encontraron películas")}, ["jellyfin_tool"]
 
-        if result_type == "match":
-            movie = result.get("result")
-            if not movie:
-                return {"type": "text", "text": "No se encontraron películas"}, ["jellyfin_tool"]
-
-            item_id = movie["Id"]
-            return {
-                "type": "video",
-                "title": movie.get("Name"),
-                "image": jellyfin.get_image_url(movie),
-                "item_id": item_id,
-                "audio_tracks": jellyfin.get_audio_tracks(item_id),
-                "score": result.get("score"),
+    if result_type == "suggestion":
+        movie = result.get("result") or {}
+        item_id = movie.get("Id")
+        if item_id:
+            return True, {
+                "type": "menu",
+                "text": result.get("message", "¿Te refieres a esta película?"),
+                "buttons": [
+                    [{"text": "✅ Sí", "callback_data": f"movie_suggest_yes:{item_id}"}, {"text": "❌ No", "callback_data": "movie_suggest_no"}],
+                ],
             }, ["jellyfin_tool"]
 
-        return {"type": "text", "text": "No se encontraron películas"}, ["jellyfin_tool"]
+        return True, {"type": "text", "text": result.get("message", "No estoy seguro de la película")}, ["jellyfin_tool"]
 
-    if intent == "library":
-        return {
+    if result_type == "match":
+        movie = result.get("result")
+        if not movie:
+            return True, {"type": "text", "text": "No se encontraron películas"}, ["jellyfin_tool"]
+
+        item_id = movie["Id"]
+        return True, {
+            "type": "video",
+            "title": movie.get("Name"),
+            "image": jellyfin.get_image_url(movie),
+            "item_id": item_id,
+            "audio_tracks": jellyfin.get_audio_tracks(item_id),
+            "score": result.get("score"),
+        }, ["jellyfin_tool"]
+
+    return True, {"type": "text", "text": "No se encontraron películas"}, ["jellyfin_tool"]
+
+
+def run_library_intent(query: str, chat_id: int):
+    """Ejecuta el intent library con la lógica real."""
+    from app.tools.jellyfin import jellyfin
+    
+    # Si query es vacío, mostrar menú principal
+    if not query.strip():
+        return True, {
             "type": "menu",
-            "text": "🎥 Biblioteca",
+            "text": "🎥 Biblioteca Jellyfin\n¿Qué quieres ver?",
             "buttons": [
                 [{"text": "🎬 Películas", "callback_data": "open_library:movies"}],
                 [{"text": "📺 Series", "callback_data": "open_library:series"}],
             ]
         }, ["jellyfin_library"]
-
-    if intent == "images":
-        from app.tools.images import get_images
-
-        images = get_images(query)
-        return {"type": "images", "images": images}, ["images_tool"]
-
-    if intent == "wiki":
-        from app.tools.wiki import wikipedia
-
-        result, sources = wikipedia(query)
-        return result, sources
-
-    if intent == "weather":
-        from app.tools.weather import get_weather
-
-        result, sources = get_weather(query)
-        return result, sources
-
-    if intent == "youtube":
-        from app.tools.youtube import download_best_youtube_video
-
-        result = download_best_youtube_video(query)
-        return result, ["youtube_tool"]
-
-    if intent == "music":
-        from app.tools.music_local import music_run
-
-        result = music_run(query, chat_id)
-        return result, ["music_tool"]
-
-    if intent == "prediction":
-        from app.tools.sports_prediction import predict_match, get_user_predictions
+    
+    # Si query es "movies" o "series", cargar esa categoría
+    if query.lower() in ["movies", "películas"]:
+        movies = jellyfin.get_all_movies()
         
-        # Si query es vacío o solo espacios, devolver menú principal
-        if not query or not query.strip():
-            from app.utils.prediction_ui import prediction_menu
-            return prediction_menu(), ["sports_prediction_tool"]
+        buttons = []
+        for movie in movies[:20]:
+            item_id = movie.get("Id")
+            title = movie.get("Name", "Sin título")[:40]
+            buttons.append([{"text": f"🎬 {title}", "callback_data": f"play_movie:{item_id}"}])
+
+        return True, {"type": "menu", "text": "🎬 Películas (1-20)", "buttons": buttons}, ["jellyfin_library"]
+    
+    if query.lower() in ["series", "series de tv"]:
+        series = jellyfin.get_all_series()
         
-        # Si es "history" o similar, mostrar historial
-        if query.lower() in ["historial", "mis predicciones", "history"]:
-            predictions = get_user_predictions(chat_id)
-            from app.utils.prediction_ui import history_menu
-            return history_menu(predictions), ["sports_prediction_tool"]
-        
-        # Caso principal: predecir partido
-        result = predict_match(query, chat_id=chat_id)
-        
-        if result.get("error"):
-            if result.get("suggestions"):
-                from app.core.chat_state import set_prediction_session
-                from app.utils.prediction_ui import team_suggestion_menu
+        buttons = []
+        for series_item in series[:20]:
+            item_id = series_item.get("Id")
+            title = series_item.get("Name", "Sin título")[:40]
+            buttons.append([{"text": f"📺 {title}", "callback_data": f"play_series:{item_id}"}])
 
-                field = result.get("field", "team_a")
-                payload = {
-                    "step": "await_team_a" if field == "team_a" else "await_team_b",
-                    f"{field}_suggestions": result.get("suggestions", []),
-                }
-                if result.get("team_a"):
-                    payload["team_a"] = result["team_a"]
-                set_prediction_session(chat_id, payload)
-                return team_suggestion_menu(result.get("original_query", query), result.get("suggestions", []), field), ["sports_prediction_tool"]
-            return {"type": "text", "text": f"❌ {result['error']}"}, ["sports_prediction_tool"]
-        
-        from app.utils.prediction_ui import prediction_result_menu
-        return prediction_result_menu(result, chat_id), ["sports_prediction_tool"]
+        return True, {"type": "menu", "text": "📺 Series (1-20)", "buttons": buttons}, ["jellyfin_library"]
+    
+    # Fallback: mostrar menú principal
+    return run_library_intent("", chat_id)
 
-    if intent == "recipe":
-        from app.tools.recipe import search_recipes, get_user_recipes, clear_user_recipes
-        from app.utils.recipe_ui import recipe_history_menu, recipe_list_menu
 
-        # ---------------- HISTORIAL ----------------
-        if query.lower() in ["historial", "mis recetas", "history"]:
-            recipes = get_user_recipes(chat_id)
-            return recipe_history_menu(recipes), ["recipe_tool"]
+def run_wiki_intent(query: str, chat_id: int):
+    """Ejecuta el intent wiki con la lógica real."""
+    from app.tools.wiki import wikipedia
+    
+    result, sources = wikipedia(query)
+    # Asegurar que devuelve exactamente 3 valores
+    return True, result, sources
 
-        # ---------------- CLEAR ----------------
-        if query.lower() in ["limpiar", "clear", "borrar"]:
-            clear_user_recipes(chat_id)
-            return {"type": "text", "text": "✅ Historial de recetas limpiado."}, ["recipe_tool"]
 
-        # ---------------- BUSCAR RECETAS ----------------
-        results = search_recipes(query)
+def run_weather_intent(query: str, chat_id: int):
+    """Ejecuta el intent weather con la lógica real."""
+    from app.tools.weather import get_weather
+    
+    result, sources = get_weather(query)
+    # Asegurar que devuelve exactamente 3 valores
+    return True, result, sources
 
-        # ⚠️ IMPORTANTE: guardar en sesión
-        from app.core.chat_state import set_recipe_session
-        set_recipe_session(chat_id, {
-            "step": "select_recipe",
-            "query": query,
-            "results": results["recipes"]
-        })
 
-        return recipe_list_menu(query, results["recipes"]), ["recipe_tool"]
+def run_images_intent(query: str, chat_id: int):
+    """Ejecuta el intent images con la lógica real."""
+    from app.tools.images import get_images
+    
+    images = get_images(query)
+    return True, {"type": "images", "images": images}, ["images_tool"]
 
-    return agent(query)
+
+def run_youtube_intent(query: str, chat_id: int):
+    """Ejecuta el intent youtube con la lógica real."""
+    from app.tools.youtube import download_youtube_video
+    
+    result = download_youtube_video(query)
+    # Asegurar que devuelve exactamente 3 valores
+    return True, result, ["youtube_tool"]
+
+
+def run_music_intent(query: str, chat_id: int):
+    """Ejecuta el intent music con la lógica real."""
+    from app.tools.music_local import music_run
+    
+    result = music_run(query, chat_id)
+    # Asegurar que devuelve exactamente 3 valores
+    return True, result, ["music_tool"]

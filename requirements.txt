@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 requests
+python-telegram-bot
 python-dotenv
 duckduckgo-search>=6.2.4
 bs4
@@ -12,3 +13,9 @@ deep-translator
 gTTS
 faster-whisper
 Pillow
+aiohttp
+httpx
+aiosignal
+frozenlist
+tzdata
+beautifulsoup4

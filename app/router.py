@@ -804,7 +804,7 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
 
         elif pending_intent:
             logger.info(f"↪️ USING PENDING INTENT: {pending_intent}")
-            result, sources = run_direct_intent(pending_intent, text, chat_id)
+            handled, result, sources = run_direct_intent(pending_intent, text, chat_id)
 
         elif get_wallapop_session(chat_id) and not text.startswith("/"):
             session = get_wallapop_session(chat_id)
@@ -963,11 +963,26 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
         # -----------------------
         if isinstance(result, dict) and result.get("type") == "menu":
             clear_placeholder(chat_id, placeholder_message_id, stop_placeholder)
-            send_message_with_buttons(
-                chat_id,
-                result.get("text", ""),
-                result.get("buttons", []),
-            )
+            
+            # Verificar si debemos editar el último mensaje en lugar de enviar uno nuevo
+            edit_mode = result.pop("_edit", False)
+            
+            logger.info(f"📦 MENU MODE: edit={edit_mode}, text={result.get('text')[:50]}...")
+            
+            if edit_mode:
+                # Editar el último mensaje existente
+                send_message_with_buttons(
+                    chat_id,
+                    result.get("text", ""),
+                    result.get("buttons", []),
+                    edit=True  # Bandera para editar en lugar de enviar nuevo
+                )
+            else:
+                send_message_with_buttons(
+                    chat_id,
+                    result.get("text", ""),
+                    result.get("buttons", []),
+                )
             
             return
 
@@ -992,6 +1007,36 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
 
             clear_placeholder(chat_id, placeholder_message_id, stop_placeholder)
             _send_jellyfin_video_response(chat_id, title, image, item_id, audio_tracks)
+            return
+
+        # -----------------------
+        # LOCAL VIDEO MODE (YOUTUBE)
+        # -----------------------
+        if isinstance(result, dict) and result.get("type") == "local_video":
+            clear_placeholder(chat_id, placeholder_message_id, stop_placeholder)
+            
+            from app.services.telegram_client import send_local_video as send_yt_video
+            
+            path = result.get("path", "")
+            caption = result.get("caption", "")
+            title = result.get("title", "")
+            resolution = result.get("resolution", "unknown")
+
+            logger.info(f"🎬 SEND YOUTUBE VIDEO: chat={chat_id}, path={path}, resolution={resolution}p")
+            
+            # Mensaje informativo al usuario sobre la resolución usada
+            info_msg = (
+                f"📹 Video de YouTube\n\n"
+                f"🎬 {title}\n"
+                f"⚡ Resolución: {resolution}p\n"
+                f"🔗 {result.get('url', '')}"
+            )
+            
+            send_yt_video(
+                chat_id,
+                path,
+                info_msg
+            )
             return
 
         # -----------------------

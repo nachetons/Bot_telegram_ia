@@ -26,6 +26,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 YOUTUBE_MAX_HEIGHT = int(os.getenv("YOUTUBE_MAX_HEIGHT", "1080").strip() or "1080")
 YOUTUBE_SEND_AS_DOCUMENT = os.getenv("YOUTUBE_SEND_AS_DOCUMENT", "false").strip().lower() in {"1", "true", "yes", "on"}
+FFMPEG_LOCATION = os.getenv("FFMPEG_LOCATION", "").strip()
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base").strip() or "base"
 WALLAPOP_ALERT_INTERVAL_HOURS = int(os.getenv("WALLAPOP_ALERT_INTERVAL_HOURS", "8").strip() or "8")
 WALLAPOP_ALERT_INTERVAL_MINUTES = int(os.getenv("WALLAPOP_ALERT_INTERVAL_MINUTES", "0").strip() or "0")
