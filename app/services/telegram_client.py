@@ -310,17 +310,13 @@ def send_photo_with_buttons(chat_id: str, image_url: str, caption: str, buttons:
             "chat_id": chat_id,
             "photo": image_url,
             "caption": (caption or "")[:1024],
-            "reply_markup": {
-                "inline_keyboard": buttons
-            }
+            "reply_markup": {"inline_keyboard": buttons} if buttons else None,
         }
-
         response = requests.post(
             f"{BASE_URL}/sendPhoto",
             json=payload,
-            timeout=TELEGRAM_MEDIA_TIMEOUT
+            timeout=TELEGRAM_MEDIA_TIMEOUT,
         )
-        print("TG PHOTO BUTTONS:", response.status_code, response.text)
         data = response.json()
         if data.get("ok"):
             message_id = data.get("result", {}).get("message_id")
@@ -329,6 +325,34 @@ def send_photo_with_buttons(chat_id: str, image_url: str, caption: str, buttons:
     except Exception as e:
         print("send_photo_with_buttons error:", e)
     return None
+
+
+def send_document(chat_id: str, file_path: str, caption: str = ""):
+    try:
+        with open(file_path, 'rb') as f:
+            file_bytes = f.read()
+        
+        response = requests.post(
+            f"{BASE_URL}/sendDocument",
+            data={
+                "chat_id": chat_id,
+                "caption": (caption or "")[:1024],
+            },
+            files={
+                "document": ("file.zip", file_bytes),
+            },
+            timeout=TELEGRAM_MEDIA_TIMEOUT,
+        )
+        print("TG DOCUMENT:", response.status_code, response.text)
+        data = response.json()
+        if data.get("ok"):
+            message_id = data.get("result", {}).get("message_id")
+            _track_bot_message(chat_id, message_id)
+            return message_id
+    except Exception as e:
+        print("send_document error:", e)
+    return None
+
 
 
 def send_photo_bytes_with_buttons(chat_id: str, photo_bytes: bytes, filename: str, caption: str, buttons: list):
@@ -400,7 +424,7 @@ def _build_media_group(images):
     return media
 
 
-def _try_send_media_group(chat_id, images):
+def _try_send_media_group(chat_id, images, manga_chat_id=None):
     media = _build_media_group(images)
     response = requests.post(
         f"{BASE_URL}/sendMediaGroup",
@@ -414,8 +438,24 @@ def _try_send_media_group(chat_id, images):
     try:
         data = response.json()
         if data.get("ok"):
+            manga_message_ids = []
             for item in data.get("result", []):
-                _track_bot_message(chat_id, item.get("message_id"))
+                mid = item.get("message_id")
+                _track_bot_message(chat_id, mid)
+                # Guardar message_ids para menus manga (para poder eliminarlos despues)
+                if manga_chat_id:
+                    manga_message_ids.append(mid)
+            # Guardar todos los message_ids del album en state_manager
+            if manga_message_ids and manga_chat_id:
+                try:
+                    from app.core.state_manager import state_manager
+                    lock = state_manager._get_lock(manga_chat_id)
+                    with lock:
+                        if manga_chat_id not in state_manager.sessions:
+                            state_manager.sessions[manga_chat_id] = {}
+                        state_manager.sessions[manga_chat_id]["manga_menu_messages"] = manga_message_ids
+                except Exception as exc:
+                    logger.debug(f"No se pudo guardar message_ids del album manga: {exc}")
     except Exception:
         pass
     return response
@@ -516,19 +556,19 @@ def send_video(chat_id: str, video_url: str, caption: str = None):
 
 def send_local_video(chat_id: str, video_path: str, caption: str = None):
     """EnvÃ­a video como Video o Document segÃºn el tamaÃ±o."""
-    logger.info(f"ðŸŽ¬ SEND VIDEO: chat={chat_id}, path={video_path}")
+    logger.info(f"📚 SEND VIDEO: chat={chat_id}, path={video_path}")
 
     # Obtener tamaÃ±o del archivo
     try:
         file_size = Path(video_path).stat().st_size
         size_mb = file_size / (1024 * 1024)
-        logger.info(f"ðŸ“Š FILE SIZE: {size_mb:.2f} MB")
+        logger.info(f"📌 FILE SIZE: {size_mb:.2f} MB")
 
         # Si es > 50MB, enviar como documento directamente
         if size_mb > 50:
             return _send_video_as_document(chat_id, video_path, caption, size_mb)
     except Exception as e:
-        logger.warning(f"âš ï¸ Error getting file size: {e}")
+        logger.warning(f"📩ï¸ Error getting file size: {e}")
 
     # Intentar primero con sendVideo (hasta 20MB)
     try:
@@ -536,20 +576,20 @@ def send_local_video(chat_id: str, video_path: str, caption: str = None):
         if result:
             return result
     except Exception as e:
-        logger.warning(f"âš ï¸ Video too large for sendVideo: {e}")
+        logger.warning(f"📩ï¸ Video too large for sendVideo: {e}")
 
     # Si falla, intentar como documento (hasta 50MB)
     try:
         _send_video_as_document(chat_id, video_path, caption)
     except Exception as e:
-        logger.error(f"âŒ Document upload failed: {e}")
+        logger.error(f"❌ Document upload failed: {e}")
 
 
 def _send_video_as_video(chat_id: str, video_path: str, caption: str = None):
     """EnvÃ­a el video como tipo Video (hasta 20MB)."""
     path = Path(video_path)
     if not path.exists():
-        logger.error(f"âŒ FILE NOT FOUND: {video_path}")
+        logger.error(f"❌ FILE NOT FOUND: {video_path}")
         return False
 
     with path.open("rb") as video_file:
@@ -565,7 +605,7 @@ def _send_video_as_video(chat_id: str, video_path: str, caption: str = None):
             },
             timeout=120
         )
-        logger.info(f"ðŸ“© TG VIDEO RESPONSE: {response.status_code} - {response.text[:200]}")
+        logger.info(f"📩 TG VIDEO RESPONSE: {response.status_code} - {response.text[:200]}")
         data = response.json()
 
         if data.get("ok"):
@@ -574,7 +614,7 @@ def _send_video_as_video(chat_id: str, video_path: str, caption: str = None):
 
         # Si es 413 (Request Entity Too Large), devolver False para intentar como documento
         if data.get("error_code") == 413:
-            logger.warning(f"âš ï¸ Video too large ({data.get('description')})")
+            logger.warning(f"📩ï¸ Video too large ({data.get('description')})")
             return False
 
         return False
@@ -584,7 +624,7 @@ def _send_video_as_document(chat_id: str, video_path: str, caption: str = None, 
     """EnvÃ­a el video como Document (hasta 50MB)."""
     path = Path(video_path)
     if not path.exists():
-        logger.error(f"âŒ FILE NOT FOUND: {video_path}")
+        logger.error(f"❌ FILE NOT FOUND: {video_path}")
         return False
 
     # Si no se pasÃ³ size_mb, calcularlo
@@ -607,7 +647,7 @@ def _send_video_as_document(chat_id: str, video_path: str, caption: str = None, 
             },
             timeout=120
         )
-        logger.info(f"ðŸ“© TG DOCUMENT RESPONSE: {response.status_code} - {response.text[:200]}")
+        logger.info(f"📩 TG DOCUMENT RESPONSE: {response.status_code} - {response.text[:200]}")
         data = response.json()
 
         if data.get("ok"):
@@ -616,16 +656,16 @@ def _send_video_as_document(chat_id: str, video_path: str, caption: str = None, 
 
         # Si falla por tamaÃ±o > 50MB
         if data.get("error_code") == 413:
-            logger.error(f"âŒ Document too large ({size_mb:.2f} MB > 50 MB limit)")
+            logger.error(f"❌ Document too large ({size_mb:.2f} MB > 50 MB limit)")
 
             # Enviar mensaje al usuario con el peso del archivo
             from app.services.telegram_client import send_message
 
             msg = (
-                f"âš ï¸ El video es muy pesado para enviarlo como documento.\n\n"
-                f"ðŸ“¦ Peso: {size_mb:.2f} MB\n"
-                f"ðŸ’¾ LÃ­mite Telegram: 50 MB\n\n"
-                f"ðŸ’¡ Sugerencia: Usa un compresor de video o busca una versiÃ³n mÃ¡s corta."
+                f"📩ï¸ El video es muy pesado para enviarlo como documento.\n\n"
+                f"📌 Peso: {size_mb:.2f} MB\n"
+                f"📙 LÃ­mite Telegram: 50 MB\n\n"
+                f"📙 Sugerencia: Usa un compresor de video o busca una versiÃ³n mÃ¡s corta."
             )
 
             send_message(chat_id, msg)
@@ -690,10 +730,28 @@ def send_local_audio(chat_id: str, audio_path: str, title: str = None, performer
         print("send_local_audio error:", e)
 
 
-def send_message_with_buttons(chat_id: str, text: str, buttons: list, edit: bool = False):
-    """EnvÃ­a un mensaje con botones o edita el Ãºltimo si edit=True."""
+def send_message_with_buttons(chat_id: str, text: str, buttons: list, edit: bool = False, manga_menu: bool = False):
+    """Envia un mensaje con botones o edita el ultimo si edit=True."""
 
     last_msg_id = None
+    
+    # Cleanup old manga menu if tracking is enabled
+    if manga_menu:
+        from app.core.state_manager import state_manager
+        old_manga_id = state_manager.get_manga_menu_message(chat_id)
+        if old_manga_id:
+            try:
+                requests.post(
+                    f"{BASE_URL}/deleteMessage",
+                    json={"chat_id": chat_id, "message_id": old_manga_id},
+                    timeout=5
+                )
+                logger.info(f"🗑️ Eliminado menu manga anterior (msg {old_manga_id})")
+            except Exception:
+                pass
+            finally:
+                state_manager.clear_manga_menu_message(chat_id)
+
     payload = {
         "chat_id": chat_id,
         "text": text,
@@ -708,7 +766,7 @@ def send_message_with_buttons(chat_id: str, text: str, buttons: list, edit: bool
             from app.core.chat_state import get_last_message_id, set_last_message_id
 
             last_msg_id = get_last_message_id(chat_id)
-            logger.info(f"ðŸ—‘ EDIT MODE: chat={chat_id}, last_msg_id={last_msg_id}")
+            logger.info(f"— EDIT MODE: chat={chat_id}, last_msg_id={last_msg_id}")
 
             if last_msg_id:
                 # Primero borra el mensaje anterior
@@ -717,9 +775,9 @@ def send_message_with_buttons(chat_id: str, text: str, buttons: list, edit: bool
                     json={"chat_id": chat_id, "message_id": last_msg_id},
                     timeout=5
                 )
-                logger.info(f"ðŸ—‘ DELETE RESPONSE: {resp.status_code} - {resp.text}")
+                logger.info(f"— DELETE RESPONSE: {resp.status_code} - {resp.text}")
 
-            # Siempre usar sendMessage para enviar el nuevo mensaje despuÃ©s de borrar
+            # Siempre usar sendMessage para enviar el nuevo mensaje despues de borrar
             endpoint = "sendMessage"
         else:
             endpoint = "sendMessage"
@@ -730,28 +788,34 @@ def send_message_with_buttons(chat_id: str, text: str, buttons: list, edit: bool
             timeout=10
         )
 
-        # ðŸ”¥ DEBUG REAL (CLAVE)
-        logger.info(f"ðŸ“© TELEGRAM {endpoint}: {r.status_code} - {r.text[:200]}")
+        # 🔑 DEBUG REAL (CLAVE)
+        logger.info(f"📩 TELEGRAM {endpoint}: {r.status_code} - {r.text[:200]}")
         data = r.json()
         if data.get("ok"):
             message_id = data.get("result", {}).get("message_id") or last_msg_id
 
-            # Si era edit pero no habÃ­a mensaje anterior, usar el nuevo message_id
+            # Si era edit pero no habia mensaje anterior, usar el nuevo message_id
             if edit and not last_msg_id:
                 message_id = data.get("result", {}).get("message_id")
 
             _track_bot_message(chat_id, message_id)
 
-            # Actualizar el Ãºltimo message_id para la prÃ³xima ediciÃ³n
+            # Actualizar el ultimo message_id para la proxima edicion
             from app.core.chat_state import set_last_message_id
             set_last_message_id(chat_id, message_id)
+            
+            # Track manga menu messages for cleanup
+            if manga_menu:
+                from app.core.state_manager import state_manager
+                state_manager.set_manga_menu_message(chat_id, message_id)
+                logger.info(f"📌 Menu manga tracked: msg {message_id}")
 
-            logger.info(f"âœ… MESSAGE SAVED: msg_id={message_id}")
+            logger.info(f"✅ MESSAGE SAVED: msg_id={message_id}")
             return message_id
 
 
     except Exception as e:
-        logger.error(f"âŒ Error send buttons: {e}")
+        logger.error(f"❌ Error send buttons: {e}")
     return None
 
 

@@ -3,6 +3,7 @@
 from typing import Tuple, List, Any
 from app.core.chat_state import (
     clear_base_chat_state,
+    clear_pending_followup,
     clear_prediction_session,
     clear_recipe_session,
     clear_wallapop_result_session,
@@ -33,13 +34,14 @@ from app.utils.prediction_ui import (
     rival_analysis_menu
 )
 from app.utils.recipe_ui import recipe_menu, recipe_history_menu
+from app.tools.manga import manga_menu, manga_search, manga_read, manga_auto_search, manga_get_history, manga_get_favorites, manga_download
 from app.core.command_registry import command_registry
 
 
 def _handle_clear(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     """Handler para /clear."""
     clear_recipe_session(chat_id)
-    return True, "🧹 He limpiado el contexto de este chat. Puedes empezar de nuevo cuando quieras.", []
+    return True, "📹 He limpiado el contexto de este chat. Puedes empezar de nuevo cuando quieras.", []
 
 
 def _handle_start(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
@@ -61,7 +63,7 @@ def _handle_video(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     if not query:
         set_pending_followup(chat_id, "movies")
         return True, "¿Qué película quieres ver?", []
-    
+
     handled, result, sources = run_direct_intent("movies", query, chat_id)
     return handled, result, sources
 
@@ -72,7 +74,7 @@ def _handle_image(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     if not query:
         set_pending_followup(chat_id, "images")
         return True, "¿Qué imagen quieres buscar?", []
-    
+
     handled, result, sources = run_direct_intent("images", query, chat_id)
     return handled, result, sources
 
@@ -83,7 +85,7 @@ def _handle_wiki(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     if not query:
         set_pending_followup(chat_id, "wiki")
         return True, "¿Qué quieres buscar en la wiki?", []
-    
+
     handled, result, sources = run_direct_intent("wiki", query, chat_id)
     return handled, result, sources
 
@@ -95,7 +97,7 @@ def _handle_weather(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     if not query:
         set_pending_followup(chat_id, "weather")
         return True, "¿De qué ciudad quieres saber el tiempo?", []
-    
+
     handled, result, sources = run_direct_intent("weather", query, chat_id)
     return handled, result, sources
 
@@ -106,7 +108,7 @@ def _handle_youtube(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     if not query:
         set_pending_followup(chat_id, "youtube")
         return True, "¿Qué vídeo quieres buscar en YouTube?", []
-    
+
     handled, result, sources = run_direct_intent("youtube", query, chat_id)
     return handled, result, sources
 
@@ -117,7 +119,7 @@ def _handle_music(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     if not query:
         set_pending_followup(chat_id, "music")
         return True, "¿Qué canción quieres buscar?", []
-    
+
     handled, result, sources = run_direct_intent("music", query, chat_id)
     return handled, result, sources
 
@@ -125,8 +127,9 @@ def _handle_music(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
 def _handle_wallapop(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     """Handler para /wallapop."""
     from app.tools.wallapop_alerts import get_alert_for_chat
-    
+
     query = text.replace("/wallapop", "", 1).strip()
+    clear_pending_followup(chat_id)
     clear_wallapop_result_session(chat_id)
     session = {
         "step": "await_query",
@@ -160,7 +163,7 @@ def _handle_mis_alertas(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
 def _handle_control(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     """Handler para /control."""
     if not is_admin(chat_id):
-        return True, "⛔ Este panel es solo para administradores.", []
+        return True, "❌ Este panel es solo para administradores.", []
     users = list_users("all")
     return True, build_control_menu(users, current_filter="all", page=0), ["access_control"]
 
@@ -168,16 +171,16 @@ def _handle_control(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
 def _handle_library(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     """Handler para /library, /menu o /catalog."""
     from app.core.chat_state import clear_all_chat_state
-    
+
     # Limpiar estado anterior antes de mostrar nuevo menú
     clear_all_chat_state(chat_id)
-    
+
     handled, result, sources = run_direct_intent("library", "", chat_id)
-    
+
     # Marcar para editar en lugar de enviar nuevo mensaje
     if isinstance(result, dict) and result.get("type") == "menu":
         result["_edit"] = True  # Bandera para editar el último mensaje
-    
+
     return handled, result, sources
 
 
@@ -186,6 +189,7 @@ def _handle_translate(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     from app.tools.translate import build_translate_result_menu, translate_language_buttons, translate_payload
 
     query = text.replace("/translate", "", 1).strip()
+    clear_pending_followup(chat_id)
     if not query:
         set_translate_session(chat_id, "await_text")
         return True, "¿Qué texto quieres traducir?", ["translate_tool"]
@@ -215,8 +219,9 @@ def _handle_playlist(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
 def _handle_prediction(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     """Handler para /prediccion o /prediction."""
     from app.core.direct_intents import run_direct_intent
-    
+
     query = text.replace("/prediccion", "", 1).replace("/prediction", "", 1).strip()
+    clear_pending_followup(chat_id)
     clear_prediction_session(chat_id)
     clear_recipe_session(chat_id)
 
@@ -226,18 +231,20 @@ def _handle_prediction(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     if query.lower() in ["historial", "mis predicciones", "history"]:
         handled, result, sources = run_direct_intent("prediction", "history", chat_id)
         return handled, result, sources
-    
+
     # Caso principal: predecir partido con equipo
     handled, result, sources = run_direct_intent("prediction", query, chat_id)
     return handled, result, sources
 
 
+
 def _handle_recipe(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     """Handler para /receta o /recipe."""
     from app.tools.recipe import search_recipes
     from app.utils.recipe_ui import recipe_list_menu
-    
+
     query = text.replace("/receta", "", 1).replace("/recipe", "", 1).strip()
+    clear_pending_followup(chat_id)
 
     if not query:
         from app.utils.recipe_ui import recipe_menu
@@ -262,34 +269,41 @@ def _handle_clear_recipes(text: str, chat_id: int) -> Tuple[bool, Any, List[str]
     return handled, result, sources
 
 
-def _handle_recipe(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
-    """Handler para /receta o /recipe."""
-    from app.tools.recipe import search_recipes
-    from app.utils.recipe_ui import recipe_list_menu
-    
-    query = text.replace("/receta", "", 1).replace("/recipe", "", 1).strip()
+def _handle_manga(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+    """Handler para /manga."""
+    query = text.replace("/manga", "", 1).strip()
 
     if not query:
-        from app.utils.recipe_ui import recipe_menu
-        return True, recipe_menu(), ["recipe_tool"]
+        return True, manga_menu(chat_id), ["manga_tool"]
 
-    results = search_recipes(query)
-    menu = recipe_list_menu(query, results.get("recipes", []))
-    clear_recipe_session(chat_id)
+    # Detectar si es comando especial o búsqueda
+    if query.lower().startswith("ver "):
+        search_query = query[4:].strip()
+        return True, manga_auto_search(chat_id, search_query), ["manga_tool"]
 
-    return True, menu, ["recipe_tool"]
+    if query.lower().startswith("historial"):
+        return True, manga_get_history(chat_id), ["manga_tool"]
 
+    if query.lower().startswith("favoritos") or query.lower().startswith("fav "):
+        fav_query = query[4:].strip() if query.lower().startswith("fav ") else ""
+        if not fav_query:
+            return True, manga_get_favorites(chat_id), ["manga_tool"]
+        # Buscar y añadir a favoritos
+        search_result = manga_search(fav_query)
+        if "results" in search_result and search_result["results"]:
+            first_manga = search_result["results"][0]
+            title = first_manga.get("title", "Sin título")
+            url = first_manga.get("url", "")
+            from app.tools.manga import manga_add_favorite
+            return True, manga_add_favorite(chat_id, title, url), ["manga_tool"]
+        return True, search_result, ["manga_tool"]
 
-def _handle_mis_recetas(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
-    """Handler para /mis_recetas."""
-    handled, result, sources = run_direct_intent("recipe", "history", chat_id)
-    return True, *result, sources
+    if query.lower().startswith("descargar ") or query.lower().startswith("dl "):
+        dl_query = query[10:].strip() if query.lower().startswith("descargar ") else query[3:]
+        return True, manga_download(chat_id, dl_query), ["manga_tool"]
 
-
-def _handle_clear_recipes(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
-    """Handler para /clear_recipes."""
-    handled, result, sources = run_direct_intent("recipe", "clear", chat_id)
-    return handled, result, sources
+    # Búsqueda automática en todos los tipos
+    return True, manga_auto_search(chat_id, query), ["manga_tool"]
 
 
 # Registrar comandos
@@ -321,6 +335,7 @@ def _initialize_commands():
     command_registry.register("/recipe", _handle_recipe)
     command_registry.register("/mis_recetas", _handle_mis_recetas)
     command_registry.register("/clear_recipes", _handle_clear_recipes)
+    command_registry.register("/manga", _handle_manga)
 
 
 _initialize_commands()
@@ -334,7 +349,7 @@ def handle_slash_command(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]
         return False, None, []
 
     command_name = parts[0]
-    
+
     # Buscar handler en el registry
     handler = command_registry.get_handler(command_name)
     if handler:
@@ -353,4 +368,3 @@ def handle_slash_command(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]
         return True, "Ese comando no existe. Usa /helper para ver los comandos disponibles.", []
 
     return False, None, []
-

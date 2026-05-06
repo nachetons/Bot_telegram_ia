@@ -66,6 +66,7 @@ El objetivo no es solo “responder comandos”, sino ofrecer una experiencia fl
 | 🌍 Traducción | Texto, nota de voz, TTS y flujo guiado |
 | 🛒 Wallapop | Búsqueda avanzada, fichas, gangas, paginación y alertas |
 | 🍳 Recetas | Búsqueda, predicción de éxito e historial culinario |
+| 📚 Manga/Manhwa | Búsqueda, lectura, favoritos y descargas (ZIP/PDF) |
 | 🧰 Utilidades | Wiki, imágenes, tiempo, onboarding y ayuda |
 | 🔐 Control | Whitelist de usuarios, solicitudes de acceso y panel admin |
 | 🧠 IA general | Consultas libres sin slash cuando no hay un flujo específico |
@@ -205,6 +206,55 @@ Qué incluye:
 - `/mis_recetas` → Muestra historial completo con botones
 - `/clear_recipes` → Limpia todas las recetas guardadas
 
+### 📚 Manga / Manhwa / MangaDex
+
+- `/manga` → Menu principal con opciones de busqueda multi-servidor
+- `/manga <busqueda>` → Busca en todos los servidores disponibles
+- `/manga_manhwa <busqueda>` → Busca especificamente en Manhwaweb (español)
+- `/mangadex <busqueda>` → Busca especificamente en MangaDex (API publica, sin API key)
+
+Qué incluye:
+
+**Servidores disponibles:**
+- **Manhwaweb**: Scraping de manhwaweb.com (contenido en español)
+- **MangaDex**: API oficial manga-dex.org (sin API key, contenido global inglés/español)
+
+**Funcionalidades:**
+- busqueda multi-servidor (Auto busca en todos)
+- tipos de busqueda: manga, manhwa, manhua, doujinshi
+- catalogo con orden alfabetico
+- top 10 por popularidad, valoracion y fecha
+- novedades recientes (semana/mes)
+- fichas detalladas con sinopsis, autores, generos y estado
+- lista de capitulos con paginacion
+- lectura de capitulos con navegacion por paginas
+- descarga de capitulos en ZIP o PDF
+- exportacion completa de mangas a ZIP/PDF
+- favoritos por usuario
+- historial de mangas leidos
+- caratulas como imagenes enviadas directamente
+
+**Routing automatico:** Los callbacks detectan si el manga viene de Manhwaweb o MangaDex por el prefijo de URL (`mangadex:manga:` vs URLs normales) y llaman a la funcion correspondiente.
+
+**Flujo de busqueda:**
+1. `/manga` → muestra menu principal con opciones (no acumula mensajes)
+2. Boton "🔍 Buscar manga" o comando directo: `/manga one piece`
+3. Resultados con botones para cada manga encontrado
+4. Al seleccionar un manga, se muestran detalles completos y capitulos
+
+**Flujo de lectura:**
+1. Seleccionar manga → ver ficha con lista de capitulos
+2. Boton "📖 Leer ultimo cap" o seleccionar capitulo especifico
+3. Navegacion por paginas con botones Anterior/Siguiente
+4. Opciones de descarga ZIP/PDF desde cada capitulo
+
+**Flujo de favoritos:**
+1. Desde la ficha del manga → boton "⭐ Favorito"
+2. `/manga` → boton "⭐ Favoritos" para ver lista completa
+3. Boton "Quitar" para eliminar de favoritos
+
+**Nota:** Todos los callbacks manga usan `_edit=True` para reemplazar el mensaje anterior en lugar de acumular nuevos mensajes en el chat.
+
 ### 🛒 Wallapop
 
 - `/wallapop`
@@ -290,6 +340,8 @@ Muchos comandos se pueden usar vacíos para que el bot te vaya pidiendo lo neces
 - `/translate`
 - `/playlist`
 - `/wallapop`
+- `/manga`
+- `/manga_manhwa`
 
 Ejemplos:
 
@@ -690,53 +742,72 @@ Agent/
     ├── router.py
     ├── config.py
     ├── core/
-    │   ├── access_control.py
-    │   ├── callback_handler.py
-    │   ├── chat_state.py
-    │   ├── command_flow.py
-    │   ├── context_builder.py
-    │   ├── direct_intents.py
-    │   ├── playlist_flow.py
-    │   ├── prompt.py
-    │   ├── refiner.py
-    │   ├── router_intent.py
-    │   ├── translate_flow.py
-    │   └── wallapop_alert_worker.py
+    │   ├── access_control.py          # Gestión de usuarios (admin/block)
+    │   ├── callback_handler.py        # Handlers para callbacks Telegram
+    │   ├── chat_state.py              # Estado legacy por chat_id
+    │   ├── command_flow.py            # Comandos slash legacy
+    │   ├── command_registry.py        # ⭐ Registro centralizado de comandos
+    │   ├── context_builder.py         # Construcción contexto RAG web
+    │   ├── direct_intents.py          # Ejecución directa de intents (legacy)
+    │   ├── intent_dispatcher.py       # ⭐ Dispatcher con patrón estrategia
+    │   ├── intent_handlers.py         # ⭐ Handlers concretos por intent
+    │   ├── manga_intent.py            # Handler intent manga/manhwa
+    │   ├── playlist_flow.py           # Flujo de playlists
+    │   ├── prompt.py                  # System prompt del asistente
+    │   ├── refiner.py                 # Refinamiento de contexto
+    │   ├── router_intent.py           # Detección de intención (legacy)
+    │   ├── state_manager.py           # ⭐ Gestor centralizado de estado
+    │   ├── translate_flow.py          # Flujo de traducción guiado
+    │   └── wallapop_alert_worker.py   # Worker global alertas Wallapop
     ├── services/
-    │   ├── agent.py
-    │   ├── llm_client.py
-    │   ├── llm_client_cloud.py
-    │   ├── llm_provider.py
-    │   └── telegram_client.py
+    │   ├── agent.py                   # Agente principal (lógica respuesta)
+    │   ├── llm_client.py              # Cliente LLM local (LM Studio)
+    │   ├── llm_client_cloud.py        # Cliente LLM cloud (OpenRouter)
+    │   ├── llm_provider.py            # Smart provider (fallback local/cloud)
+    │   └── telegram_client.py         # Cliente Telegram API
     ├── tools/
-    │   ├── images.py
-    │   ├── jellyfin.py
-    │   ├── music_local.py
-    │   ├── recipe.py          # ⭐ NUEVO: Búsqueda y gestión de recetas Cookpad
-    │   ├── scraper.py
-    │   ├── sports_prediction.py
-    │   ├── transcription.py
-    │   ├── translate.py
-    │   ├── wallapop.py
-    │   ├── wallapop_alerts.py
-    │   ├── weather.py
-    │   ├── web.py
-    │   ├── wiki.py
-    │   └── youtube.py
+    │   ├── images.py                  # Búsqueda de imágenes
+    │   ├── jellyfin.py                # Integración Jellyfin
+    │   ├── manga/                     # ⭐ Herramienta Manga/Manhwa completa
+    │   │   ├── __init__.py            # API pública (search, menu, read...)
+    │   │   ├── base.py                # Utilidades compartidas, cache, callbacks
+    │   │   └── servers/               # Implementaciones por servidor
+    │   │       ├── manhwaweb.py       # Scraping Manhwaweb.com (español)
+    │   │       └── mangadex.py        # API MangaDex.org (sin API key, inglés/español)
+    │   ├── music_local.py             # Música local + playlists
+    │   ├── recipe.py                  # Búsqueda recetas Cookpad / Spoonacular
+    │   ├── scraper.py                 # Web scraping genérico
+    │   ├── sports_prediction.py       # Predicciones deportivas fútbol
+    │   ├── transcription.py           # Transcripción audio (Whisper)
+    │   ├── translate.py               # Traducción + TTS
+    │   ├── wallapop.py                # Búsqueda Wallapop
+    │   ├── wallapop_alerts.py         # Gestión de alertas Wallapop
+    │   ├── weather.py                 # Clima (duckduckgo)
+    │   ├── web.py                     # Búsqueda web general
+    │   ├── wiki.py                    # Wikipedia API
+    │   └── youtube.py                 # Descarga YouTube (yt-dlp)
     └── utils/
-        ├── access_ui.py
-        ├── bot_ui.py
-        ├── jellyfin_ui.py
-        ├── playlist_ui.py
-        ├── prediction_ui.py     # ⭐ NUEVO: UI para predicciones deportivas
-        ├── recipe_ui.py         # ⭐ NUEVO: UI para recetas (menús, historial)
-        ├── response_flow.py
-        └── wallapop_ui.py
+        ├── access_ui.py               # UI panel de control acceso
+        ├── bot_ui.py                  # UI mensajes start/helper
+        ├── jellyfin_ui.py             # UI Jellyfin (botones audio)
+        ├── playlist_ui.py             # UI playlists
+        ├── prediction_ui.py           # UI predicciones deportivas
+        ├── recipe_ui.py               # UI recetas (menús, historial)
+        ├── response_flow.py           # Flujo de respuesta (typing, placeholder)
+        └── wallapop_ui.py             # UI Wallapop (menús, botones)
 ```
 
-**Nuevas herramientas añadidas:**
-- `recipe.py` + `recipe_ui.py`: Sistema completo de búsqueda y gestión de recetas culinarias desde Cookpad
-- `prediction_ui.py`: Interfaz para predicciones deportivas con análisis estadístico
+**Nuevas herramientas y patrones añadidos:**
+- `command_registry.py`: Registro centralizado de comandos slash con patrón Singleton
+- `intent_dispatcher.py` + `intent_handlers.py`: Dispatcher de intents con patrón estrategia para escalabilidad
+- `state_manager.py`: Gestor centralizado de estado por chat_id (reemplaza funciones dispersas en chat_state.py)
+- `manga_intent.py`: Handler del intent manga siguiendo el patrón estrategia
+- `app/tools/manga/`: Sistema completo de búsqueda, lectura y descarga de manga/manhwa
+  - **Manhwaweb**: Scraping de manhwaweb.com (contenido español)
+  - **MangaDex**: API oficial manga-dex.org (sin API key, contenido global inglés/español)
+  - Routing automatico por prefijo de URL en callbacks (`mangadex:manga:` vs URLs normales)
+- `recipe.py` + `recipe_ui.py`: Sistema de búsqueda y gestión de recetas culinarias
+- `prediction_ui.py`: Interfaz para predicciones deportivas con analisis estadistico
 
 <a id="sesiones-por-usuario"></a>
 ## 👤 Sesiones por usuario
@@ -938,6 +1009,11 @@ El bot soporta actualmente:
 - fichas detalladas y paginación de artículos
 - alertas de Wallapop con worker en segundo plano
 - predicciones deportivas con análisis estadístico
+- sistema manga/manhwa/MangaDex: busqueda, lectura, favoritos y descargas (ZIP/PDF)
+  - Manhwaweb (español) + MangaDex (API publica sin API key, ingles/espanol)
+  - Routing automatico por prefijo de URL en callbacks
+- arquitectura escalable con CommandRegistry e IntentDispatcher (patrón estrategia)
+- StateManager centralizado para gestión de estado por chat_id
 
 <a id="troubleshooting"></a>
 ## 🧯 Troubleshooting

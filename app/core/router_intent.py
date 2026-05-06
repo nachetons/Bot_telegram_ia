@@ -8,7 +8,7 @@ from app.services.llm_client_cloud import call_llm_cloud
 
 logger = logging.getLogger("router_intent")
 
-ALLOWED_INTENTS = {"movies", "images", "weather", "wiki", "search", "library", "youtube"}
+ALLOWED_INTENTS = {"movies", "images", "weather", "wiki", "search", "library", "youtube", "manga"}
 MOVIE_HINTS = (
     "ver",
     "pelicula",
@@ -66,6 +66,16 @@ YOUTUBE_HINTS = (
     "busca en youtube",
     "buscar en youtube",
 )
+
+MANGA_HINTS = (
+    "/manga",
+    "manga",
+    "manhwa",
+    "lee el manga",
+    "ver manga",
+    "capitulo de manga",
+    "capítulo de manga",
+)
 TITLE_PREFIXES = [
     "quiero ver",
     "ponme",
@@ -95,6 +105,10 @@ def clean_intent(text: str):
 
     if cleaned in ALLOWED_INTENTS:
         return cleaned
+    
+    # Verificar si contiene hints de manga
+    if any(hint in cleaned for hint in MANGA_HINTS):
+        return "manga"
 
     return None
 
@@ -126,8 +140,14 @@ def detect_intent_fast(query: str):
     if q.startswith("/youtube"):
         return "youtube"
 
+    if q.startswith("/manga"):
+        return "manga"
+
     if any(hint in q for hint in YOUTUBE_HINTS):
         return "youtube"
+
+    if any(hint in q for hint in MANGA_HINTS):
+        return "manga"
 
     if any(hint in q for hint in WIKI_HINTS):
         return "wiki"

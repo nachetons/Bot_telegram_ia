@@ -210,3 +210,6 @@ __marimo__/
 # Documentation and data files (opcional - descomentar si no quieres subirlos)
 *.md
 data/*.json
+
+# Manga tool data directory
+data/manga/

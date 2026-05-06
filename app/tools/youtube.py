@@ -1,4 +1,4 @@
-﻿import json
+import json
 import logging
 import shutil
 import subprocess
@@ -254,7 +254,7 @@ def search_youtube(query: str, max_results: int = 5, mode: str = "generic"):
 
     cleaned_query = (query or "").strip()
     if not cleaned_query:
-        return {"error": "Â¿QuÃ© vÃ­deo quieres buscar en YouTube?"}
+        return {"error": "¿Qué vídeo quieres buscar en YouTube?"}
 
     cached = _get_cached_search(cleaned_query, max_results, mode)
     if cached:
@@ -290,7 +290,7 @@ def search_youtube(query: str, max_results: int = 5, mode: str = "generic"):
         items.append(
             {
                 "video_id": video_id,
-                "title": entry.get("title") or "Sin tÃ­tulo",
+                "title": entry.get("title") or "Sin título",
                 "channel": uploader,
                 "description": entry.get("description") or "",
                 "thumbnail": _pick_thumbnail(entry),
@@ -302,7 +302,7 @@ def search_youtube(query: str, max_results: int = 5, mode: str = "generic"):
         )
 
     if not items:
-        return {"error": "No encontrÃ© vÃ­deos en YouTube para esa bÃºsqueda."}
+        return {"error": "No encontré vídeos en YouTube para esa búsqueda."}
 
     top = items[0]
     lines = [f"Resultados de YouTube para: {cleaned_query}"]
@@ -312,8 +312,8 @@ def search_youtube(query: str, max_results: int = 5, mode: str = "generic"):
         lines.append(f"{index}. {item['title']} - {item['channel']}")
         buttons.append(
             [
-                {"text": f"ðŸ“¥ TG {index}", "callback_data": f"youtube_play:{item['video_id']}"},
-                {"text": f"ðŸ”— {index}", "url": item["url"]},
+                {"text": f"📌 TG {index}", "callback_data": f"youtube_play:{item['video_id']}"},
+                {"text": f"— {index}", "url": item["url"]},
             ]
         )
 
@@ -344,25 +344,25 @@ def find_best_youtube_match(query: str, max_results: int = 4, mode: str = "gener
 
     top_result = (results.get("results") or [None])[0]
     if not top_result:
-        return None, "No encontrÃ© un resultado vÃ¡lido."
+        return None, "No encontré un resultado válido."
 
     return top_result, None
 
 
 def download_youtube_video(video_id: str):
-    """Descarga video de YouTube con optimizaciÃ³n automÃ¡tica de resoluciÃ³n segÃºn tamaÃ±o."""
+    """Descarga video de YouTube con optimización automática de resolución según tamaño."""
     cleanup_temp_videos()
     _ensure_temp_dir()
 
     # Si es un texto (query), buscar el primer resultado y extraer su ID
     if "youtube.com" not in video_id and "youtu.be" not in video_id:
-        logger.info(f"ðŸ” Buscando video por query: {video_id}")
+        logger.info(f"🔍 Buscando video por query: {video_id}")
         search_result = _search_youtube(video_id)
         if search_result.get("error"):
             return search_result
 
         clean_video_id = search_result["video_id"]
-        logger.info(f"âœ… Video encontrado: {clean_video_id} - {search_result['title']}")
+        logger.info(f"✅ Video encontrado: {clean_video_id} - {search_result['title']}")
     else:
         # Extraer video_id de la URL
         clean_video_id = _extract_video_id(video_id)
@@ -383,26 +383,26 @@ def download_youtube_video(video_id: str):
     resolutions_to_try = [1080, 720, 480, 360]
 
     for height in resolutions_to_try:
-        logger.info(f"ðŸŽ¬ Intentando descargar a {height}p...")
+        logger.info(f"📚 Intentando descargar a {height}p...")
         result = _try_download_with_resolution(clean_video_id, height)
 
         if "error" in result:
-            logger.warning(f"âš ï¸ FallÃ³ a {height}p: {result['error']}")
+            logger.warning(f"📩ï¸ Falló a {height}p: {result['error']}")
             continue
 
-        # Verificar si el tamaÃ±o es aceptable (<50MB para documento o <20MB para video)
+        # Verificar si el tamaño es aceptable (<50MB para documento o <20MB para video)
         path = Path(result.get("path", ""))
         if path.exists():
             size_mb = path.stat().st_size / (1024 * 1024)
 
             # Si cabe en Telegram, devolverlo
-            if size_mb <= 50:  # LÃ­mite de documento
-                logger.info(f"âœ… Video descargado exitosamente: {size_mb:.2f} MB at {height}p")
+            if size_mb <= 50:  # Límite de documento
+                logger.info(f"✅ Video descargado exitosamente: {size_mb:.2f} MB at {height}p")
                 return result
 
-            # Si es muy grande pero ya intentamos la mejor resoluciÃ³n, seguir probando
+            # Si es muy grande pero ya intentamos la mejor resolución, seguir probando
             if height == resolutions_to_try[0]:  # 1080p fue el primero
-                logger.info(f"âš ï¸ Video de {size_mb:.2f} MB a {height}p, intentando con menor resoluciÃ³n...")
+                logger.info(f"📩ï¸ Video de {size_mb:.2f} MB a {height}p, intentando con menor resolución...")
 
     return {"error": "No se pudo descargar un video que quepa en Telegram"}
 
@@ -430,7 +430,7 @@ def _search_youtube(query: str):
 
             return {"video_id": video_id, "title": title}
 
-        return {"error": f"No se encontrÃ³ el video: {query}"}
+        return {"error": f"No se encontró el video: {query}"}
 
 
 def _extract_video_id(url: str) -> str:
@@ -451,13 +451,13 @@ def _extract_video_id(url: str) -> str:
 
 
 def _try_download_with_resolution(video_id: str, max_height: int):
-    """Intenta descargar un video con una resoluciÃ³n mÃ¡xima especÃ­fica."""
+    """Intenta descargar un video con una resolución máxima específica."""
     output_template = str(TEMP_DIR / f"{video_id}-%(title).80s.%(ext)s")
     source_url = _youtube_watch_url(video_id)
 
     height_filter = f"[height<={max_height}]" if max_height > 0 else ""
 
-    # Verificar si ffmpeg estÃ¡ disponible
+    # Verificar si ffmpeg está disponible
     has_ffmpeg = bool(shutil.which("ffmpeg")) and bool(shutil.which("ffprobe"))
 
     options = {
@@ -478,11 +478,11 @@ def _try_download_with_resolution(video_id: str, max_height: int):
         "restrictfilenames": True,
         "merge_output_format": "mp4",
         "logger": _SilentYTDLPLogger(),
-        # Filtro de duraciÃ³n mÃ¡xima: 30 minutos (1800 segundos)
+        # Filtro de duración máxima: 30 minutos (1800 segundos)
         "max_duration": 1800,
     }
 
-    logger.info(f"ðŸ“¥ Descargando video {video_id} a {max_height}p...")
+    logger.info(f"📌 Descargando video {video_id} a {max_height}p...")
 
     with YoutubeDL(options) as ydl:
         info = ydl.extract_info(source_url, download=True)
@@ -514,7 +514,7 @@ def _try_download_with_resolution(video_id: str, max_height: int):
 
 
 def download_best_youtube_video(query: str, max_results: int = 4):
-    """Descarga video de YouTube con optimizaciÃ³n automÃ¡tica."""
+    """Descarga video de YouTube con optimización automática."""
     top_result, error = find_best_youtube_match(query, max_results=max_results, mode="video")
     if error:
         return {"error": error}
@@ -531,7 +531,7 @@ def download_best_youtube_video(query: str, max_results: int = 4):
 
 def download_best_youtube_audio(query: str, max_results: int = 4):
 
-    """Descarga audio de YouTube (mÃºsica) con optimizaciÃ³n de tamaÃ±o."""
+    """Descarga audio de YouTube (música) con optimización de tamaño."""
     top_result, error = find_best_youtube_match(query, max_results=max_results, mode="music")
     if error:
         return {"error": error}
@@ -549,11 +549,11 @@ def download_best_youtube_audio(query: str, max_results: int = 4):
         "extractaudio": True,
         "audio_format": "m4a",
         "outtmpl": output_template,
-        # Filtro de duraciÃ³n mÃ¡xima: 10 minutos (600 segundos) para mÃºsica
+        # Filtro de duración máxima: 10 minutos (600 segundos) para música
         "max_duration": 600,
     }
 
-    logger.info(f"ðŸŽµ Descargando audio {video_id}...")
+    logger.info(f"🎕 Descargando audio {video_id}...")
 
     with YoutubeDL(options) as ydl:
         info = ydl.extract_info(source_url, download=True)
@@ -561,7 +561,7 @@ def download_best_youtube_audio(query: str, max_results: int = 4):
 
     path = Path(downloaded_path)
 
-    # Verificar si el archivo existe y obtener su tamaÃ±o
+    # Verificar si el archivo existe y obtener su tamaño
     if not path.exists():
         alt_path = path.with_suffix(".m4a")
         if alt_path.exists():
@@ -571,7 +571,7 @@ def download_best_youtube_audio(query: str, max_results: int = 4):
         return {"error": "No se pudo descargar el audio"}
 
     size_mb = path.stat().st_size / (1024 * 1024)
-    logger.info(f"âœ… Audio descargado: {size_mb:.2f} MB")
+    logger.info(f"✅ Audio descargado: {size_mb:.2f} MB")
 
     result = {
         "type": "local_audio",

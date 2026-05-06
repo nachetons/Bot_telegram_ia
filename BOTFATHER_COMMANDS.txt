@@ -27,3 +27,9 @@ receta - buscar receta y predecir éxito
 recipe - alternativa en inglés a /receta
 mis_recetas - ver historial de recetas guardadas
 clear_recipes - limpiar historial de recetas
+
+# MANGA / MANHWA
+manga - buscar y explorar manga/manhwa
+manga_manhwa - búsqueda específica en Manhwaweb
+mangadex - búsqueda global en MangaDex (sin API key)
+manga_vermanhwa - búsqueda específica en VerManhwa (español)

@@ -342,6 +342,83 @@ class ClearRecipesIntentHandler:
         return True, *result
 
 
+class MangaIntentHandler:
+    """Handler para el intent 'manga'."""
+
+    def get_intent_name(self) -> str:
+        return "manga"
+
+    def handle(self, query: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+        from app.core.chat_state import set_pending_followup
+        from app.core.direct_intents import run_manga_intent
+        from app.tools.manga import manga_menu
+        
+        if not query.strip():
+            result = manga_menu(chat_id)
+            result["_edit"] = True
+            return True, result, ["manga_tool"]
+        
+        return run_manga_intent(query, chat_id)
+
+
+class MangaManhwaIntentHandler:
+    """Handler para el intent 'manga_manhwa' (búsqueda específica en Manhwaweb)."""
+
+    def get_intent_name(self) -> str:
+        return "manga_manhwa"
+
+    def handle(self, query: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+        from app.core.chat_state import set_pending_followup
+        from app.tools.manga import manga_search, manga_manhwaweb_menu
+        
+        if not query.strip():
+            result = manga_manhwaweb_menu()
+            result["_edit"] = True
+            return True, result, ["manga_tool"]
+        
+        # Buscar específicamente como manhwa
+        result = manga_search(query, "manhwa")
+        return True, result, ["manga_tool"]
+
+
+class MangaDexIntentHandler:
+    """Handler para el intent 'mangadex' (búsqueda en MangaDex)."""
+
+    def get_intent_name(self) -> str:
+        return "mangadex"
+
+    def handle(self, query: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+        from app.core.chat_state import set_pending_followup
+        from app.tools.manga import mangadex_search, mangadex_menu
+        
+        if not query.strip():
+            result = mangadex_menu()
+            result["_edit"] = True
+            return True, result, ["manga_tool"]
+        
+        result = mangadex_search(query)
+        return True, result, ["manga_tool"]
+
+
+class MangaVerManhwaIntentHandler:
+    """Handler para el intent 'manga_vermanhwa' (búsqueda en VerManhwa)."""
+
+    def get_intent_name(self) -> str:
+        return "manga_vermanhwa"
+
+    def handle(self, query: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+        from app.core.chat_state import set_pending_followup
+        from app.tools.manga import vermanhwa_search, vermanhwa_menu
+        
+        if not query.strip():
+            result = vermanhwa_menu()
+            result["_edit"] = True
+            return True, result, ["manga_tool"]
+        
+        result = vermanhwa_search(query)
+        return True, result, ["manga_tool"]
+
+
 # Registrar todos los handlers
 def _initialize_handlers():
     """Inicializa el dispatcher con todos los handlers."""
@@ -366,6 +443,10 @@ def _initialize_handlers():
     intent_dispatcher.register(ClearIntentHandler())
     intent_dispatcher.register(MisRecetasIntentHandler())
     intent_dispatcher.register(ClearRecipesIntentHandler())
+    intent_dispatcher.register(MangaIntentHandler())
+    intent_dispatcher.register(MangaManhwaIntentHandler())
+    intent_dispatcher.register(MangaDexIntentHandler())
+    intent_dispatcher.register(MangaVerManhwaIntentHandler())
 
 
 _initialize_handlers()

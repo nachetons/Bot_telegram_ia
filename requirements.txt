@@ -13,9 +13,11 @@ deep-translator
 gTTS
 faster-whisper
 Pillow
+img2pdf
 aiohttp
 httpx
 aiosignal
 frozenlist
 tzdata
 beautifulsoup4
+

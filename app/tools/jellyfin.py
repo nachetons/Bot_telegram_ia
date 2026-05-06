@@ -350,10 +350,12 @@ class JellyfinTool:
         params = {
             "api_key": self.api_key,
             "AudioStreamIndex": audio_index,
-            "VideoCodec": "h264",
-            "AudioCodec": "aac",
+            "VideoCodec": "h264,h265,vp9",
+            "AudioCodec": "aac,opus,ac3",
             "AllowVideoStreamCopy": "true",
-            "AllowAudioStreamCopy": "false",
+            "AllowAudioStreamCopy": "true",
+            "OverMaxSize": "false",
+            "DirectPlay": "true",
         }
 
         resolved_media_source_id = media_source_id or (media_source.get("Id") if media_source else None)

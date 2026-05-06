@@ -1,7 +1,10 @@
 """Centralized state management for chat sessions."""
 
+import logging
 import threading
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger("bot")
 
 
 class ChatStateManager:
@@ -292,6 +295,58 @@ class ChatStateManager:
             if "recipe" in self.sessions.get(chat_id, {}):
                 del self.sessions[chat_id]["recipe"]
 
+    # ========== MANGA MENU MESSAGES ==========
+    def set_manga_menu_message(self, chat_id: int, message_id: int) -> None:
+        """Guarda el ID del mensaje actual de menu manga para poder eliminarlo."""
+        lock = self._get_lock(chat_id)
+        with lock:
+            if chat_id not in self.sessions:
+                self.sessions[chat_id] = {}
+            # Guardar como lista para permitir multiples mensajes manga
+            if "manga_menu_messages" not in self.sessions[chat_id]:
+                self.sessions[chat_id]["manga_menu_messages"] = []
+            messages = self.sessions[chat_id]["manga_menu_messages"]
+            # Eliminar mensaje anterior si existe (solo mantener el ultimo)
+            if messages:
+                try:
+                    from app.services.telegram_client import delete_message
+                    delete_message(chat_id, messages[0])
+                except Exception:
+                    pass
+            self.sessions[chat_id]["manga_menu_messages"] = [message_id]
+
+    def get_manga_menu_message(self, chat_id: int) -> Optional[int]:
+        """Obtiene el ID del mensaje actual de menu manga."""
+        lock = self._get_lock(chat_id)
+        if chat_id not in self.sessions:
+            return None
+        messages = self.sessions[chat_id].get("manga_menu_messages", [])
+        return messages[0] if messages else None
+
+    def clear_manga_menu_message(self, chat_id: int) -> None:
+        """Limpia el ID del mensaje de menu manga."""
+        lock = self._get_lock(chat_id)
+        if "manga_menu_messages" in self.sessions.get(chat_id, {}):
+            del self.sessions[chat_id]["manga_menu_messages"]
+
+    def delete_all_manga_menus(self, chat_id: int) -> None:
+        """Elimina TODOS los mensajes manga anteriores de la conversacion."""
+        lock = self._get_lock(chat_id)
+        with lock:
+            messages = self.sessions.get(chat_id, {}).get("manga_menu_messages", [])
+            if not messages:
+                return
+            try:
+                from app.services.telegram_client import delete_message
+                for msg_id in messages:
+                    try:
+                        delete_message(chat_id, msg_id)
+                        logger.debug(f"🗑️ Eliminado mensaje manga {msg_id} para chat {chat_id}")
+                    except Exception as exc:
+                        logger.debug(f"No se pudo eliminar mensaje manga {msg_id}: {exc}")
+            finally:
+                self.sessions[chat_id]["manga_menu_messages"] = []
+
     # ========== UTILITIES ==========
     def _get_lock(self, chat_id: int) -> threading.Lock:
         """Obtiene o crea un lock para el chat_id."""
@@ -318,6 +373,7 @@ class ChatStateManager:
         self.clear_jellyfin_item_message(chat_id)
         self.clear_prediction_session(chat_id)
         self.clear_recipe_session(chat_id)
+        self.clear_manga_menu_message(chat_id)
 
     def set_last_message_id(self, chat_id: int, message_id: int) -> None:
         """Guarda el ID del último mensaje enviado."""
