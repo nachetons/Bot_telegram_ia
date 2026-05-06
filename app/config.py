@@ -10,6 +10,8 @@ OPENROUTER_URL = os.getenv("OPENROUTER_URL")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = int(os.getenv("TELEGRAM_CHAT_ID", "0").strip() or "0")
+
 TELEGRAM_ADMIN_CHAT_IDS = [
     int(value.strip())
     for value in os.getenv("TELEGRAM_ADMIN_CHAT_IDS", "").split(",")

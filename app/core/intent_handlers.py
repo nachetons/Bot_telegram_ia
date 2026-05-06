@@ -349,6 +349,11 @@ class MangaIntentHandler:
         return "manga"
 
     def handle(self, query: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+        from app.config import TELEGRAM_CHAT_ID
+        
+        if chat_id != TELEGRAM_CHAT_ID:
+            return True, "⛔ Funcionalidad manga restringida por ahora.", []
+        
         from app.core.chat_state import set_pending_followup
         from app.core.direct_intents import run_manga_intent
         from app.tools.manga import manga_menu
@@ -368,6 +373,11 @@ class MangaManhwaIntentHandler:
         return "manga_manhwa"
 
     def handle(self, query: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+        from app.config import TELEGRAM_CHAT_ID
+        
+        if chat_id != TELEGRAM_CHAT_ID:
+            return True, "⛔ Funcionalidad manga restringida por ahora.", []
+        
         from app.core.chat_state import set_pending_followup
         from app.tools.manga import manga_search, manga_manhwaweb_menu
         
@@ -388,6 +398,11 @@ class MangaDexIntentHandler:
         return "mangadex"
 
     def handle(self, query: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+        from app.config import TELEGRAM_CHAT_ID
+        
+        if chat_id != TELEGRAM_CHAT_ID:
+            return True, "⛔ Funcionalidad manga restringida por ahora.", []
+        
         from app.core.chat_state import set_pending_followup
         from app.tools.manga import mangadex_search, mangadex_menu
         
@@ -407,6 +422,11 @@ class MangaVerManhwaIntentHandler:
         return "manga_vermanhwa"
 
     def handle(self, query: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+        from app.config import TELEGRAM_CHAT_ID
+        
+        if chat_id != TELEGRAM_CHAT_ID:
+            return True, "⛔ Funcionalidad manga restringida por ahora.", []
+        
         from app.core.chat_state import set_pending_followup
         from app.tools.manga import vermanhwa_search, vermanhwa_menu
         

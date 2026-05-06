@@ -547,31 +547,38 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
             if has_conflicting_session:
                 clear_pending_followup(chat_id)
             else:
-                from app.tools.manga import manga_read, manga_auto_search, mangadex_search, vermanhwa_search, vermanhwa_auto_search
+                from app.config import TELEGRAM_CHAT_ID
+                
+                if chat_id != TELEGRAM_CHAT_ID:
+                    clear_pending_followup(chat_id)
+                    result = "⛔ Funcionalidad manga restringida por ahora."
+                    sources = []
+                else:
+                    from app.tools.manga import manga_read, manga_auto_search, mangadex_search, vermanhwa_search, vermanhwa_auto_search
 
-                query = text.strip()
+                    query = text.strip()
 
-                if pending_intent == "manga":
-                    result = manga_read(query, "")
-                elif pending_intent == "manga_auto":
-                    result = manga_auto_search(chat_id, query)
-                elif pending_intent == "manga_manhwa":
-                    result = manga_read(query, "manhwa")
-                elif pending_intent == "manga_search":
-                    result = manga_read(query, "")
-                elif pending_intent == "mangadex":
-                    result = mangadex_search(query)
-                elif pending_intent == "mangadex_search":
-                    result = mangadex_search(query)
-                elif pending_intent == "manga_vermanhwa":
-                    result = vermanhwa_search(query)
-                elif pending_intent == "manga_vermanhwa_search":
-                    result = vermanhwa_auto_search(chat_id, query)
+                    if pending_intent == "manga":
+                        result = manga_read(query, "")
+                    elif pending_intent == "manga_auto":
+                        result = manga_auto_search(chat_id, query)
+                    elif pending_intent == "manga_manhwa":
+                        result = manga_read(query, "manhwa")
+                    elif pending_intent == "manga_search":
+                        result = manga_read(query, "")
+                    elif pending_intent == "mangadex":
+                        result = mangadex_search(query)
+                    elif pending_intent == "mangadex_search":
+                        result = mangadex_search(query)
+                    elif pending_intent == "manga_vermanhwa":
+                        result = vermanhwa_search(query)
+                    elif pending_intent == "manga_vermanhwa_search":
+                        result = vermanhwa_auto_search(chat_id, query)
 
-                # Eliminar menu manga anterior antes de mostrar resultados de busqueda
-                _cleanup_old_manga_menu(chat_id)
+                    # Eliminar menu manga anterior antes de mostrar resultados de busqueda
+                    _cleanup_old_manga_menu(chat_id)
 
-                sources = ["manga_tool"]
+                    sources = ["manga_tool"]
 
         elif get_recipe_session(chat_id) and not text.startswith("/"):
 

@@ -67,6 +67,7 @@ El objetivo no es solo “responder comandos”, sino ofrecer una experiencia fl
 | 🛒 Wallapop | Búsqueda avanzada, fichas, gangas, paginación y alertas |
 | 🍳 Recetas | Búsqueda, predicción de éxito e historial culinario |
 | 📚 Manga/Manhwa | Búsqueda, lectura, favoritos y descargas (ZIP/PDF) |
+| 🍳 Predicciones | Predicciones deportivas con análisis estadístico |
 | 🧰 Utilidades | Wiki, imágenes, tiempo, onboarding y ayuda |
 | 🔐 Control | Whitelist de usuarios, solicitudes de acceso y panel admin |
 | 🧠 IA general | Consultas libres sin slash cuando no hay un flujo específico |
@@ -206,18 +207,26 @@ Qué incluye:
 - `/mis_recetas` → Muestra historial completo con botones
 - `/clear_recipes` → Limpia todas las recetas guardadas
 
-### 📚 Manga / Manhwa / MangaDex
+### 📚 Manga / Manhwa / Manhua / MangaDex / VerManhwa
 
 - `/manga` → Menu principal con opciones de busqueda multi-servidor
 - `/manga <busqueda>` → Busca en todos los servidores disponibles
 - `/manga_manhwa <busqueda>` → Busca especificamente en Manhwaweb (español)
 - `/mangadex <busqueda>` → Busca especificamente en MangaDex (API publica, sin API key)
+- `/manga_vermanhwa <busqueda>` → Busca especificamente en VerManhwa (español)
 
 Qué incluye:
 
 **Servidores disponibles:**
 - **Manhwaweb**: Scraping de manhwaweb.com (contenido en español)
 - **MangaDex**: API oficial manga-dex.org (sin API key, contenido global inglés/español)
+- **VerManhwa**: Scraping de vermanhwa.com (contenido en español)
+
+**Comandos disponibles:**
+- `/manga` → Menu principal multi-servidor (Auto busca en todos)
+- `/manga_manhwa <busqueda>` → Busca solo en Manhwaweb
+- `/mangadex <busqueda>` → Busca solo en MangaDex
+- `/manga_vermanhwa <busqueda>` → Busca solo en VerManhwa
 
 **Funcionalidades:**
 - busqueda multi-servidor (Auto busca en todos)
@@ -234,12 +243,18 @@ Qué incluye:
 - historial de mangas leidos
 - caratulas como imagenes enviadas directamente
 
-**Routing automatico:** Los callbacks detectan si el manga viene de Manhwaweb o MangaDex por el prefijo de URL (`mangadex:manga:` vs URLs normales) y llaman a la funcion correspondiente.
+**Galeria de portadas:** Los resultados de busqueda se muestran como album de fotos (media group) con las portadas de todos los mangas, seguido de un mensaje separado con la lista numerada y botones "Ver X", "Fav" y paginacion.
+
+**Cleanup automatico de menus:** Antes de mostrar cualquier menu manga nuevo, se eliminan automaticamente TODOS los mensajes manga anteriores (album + texto) para no saturar la conversacion. Solo existe un menu manga visible a la vez.
+
+**Boton Volver mejorado:** El boton "Volver" ahora resuelve correctamente el back_ref y vuelve al menu anterior. Si no se puede resolver, fallback al menu principal `/manga`.
+
+**Routing automatico:** Los callbacks detectan si el manga viene de Manhwaweb, MangaDex o VerManhwa por el prefijo de URL (`mangadex:manga:`, URLs con `vermanhwa` vs URLs normales) y llaman a la funcion correspondiente.
 
 **Flujo de busqueda:**
 1. `/manga` → muestra menu principal con opciones (no acumula mensajes)
 2. Boton "🔍 Buscar manga" o comando directo: `/manga one piece`
-3. Resultados con botones para cada manga encontrado
+3. Resultados como album de fotos + mensaje con botones para cada manga encontrado
 4. Al seleccionar un manga, se muestran detalles completos y capitulos
 
 **Flujo de lectura:**
@@ -342,6 +357,7 @@ Muchos comandos se pueden usar vacíos para que el bot te vaya pidiendo lo neces
 - `/wallapop`
 - `/manga`
 - `/manga_manhwa`
+- `/manga_vermanhwa`
 
 Ejemplos:
 
@@ -1009,11 +1025,12 @@ El bot soporta actualmente:
 - fichas detalladas y paginación de artículos
 - alertas de Wallapop con worker en segundo plano
 - predicciones deportivas con análisis estadístico
-- sistema manga/manhwa/MangaDex: busqueda, lectura, favoritos y descargas (ZIP/PDF)
-  - Manhwaweb (español) + MangaDex (API publica sin API key, ingles/espanol)
+- sistema manga/manhwa/MangaDex/VerManhwa: busqueda, lectura, favoritos y descargas (ZIP/PDF)
+  - Manhwaweb (español) + MangaDex (API publica sin API key, ingles/espanol) + VerManhwa (espanol)
   - Routing automatico por prefijo de URL en callbacks
 - arquitectura escalable con CommandRegistry e IntentDispatcher (patrón estrategia)
-- StateManager centralizado para gestión de estado por chat_id
+- StateManager centralizado para gestion de estado por chat_id
+- tipo de respuesta document para descargas ZIP/PDF de manga
 
 <a id="troubleshooting"></a>
 ## 🧯 Troubleshooting

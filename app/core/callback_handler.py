@@ -21,6 +21,12 @@ EPISODES_PER_PAGE = 20
 SEASONS_PER_PAGE = 20
 
 
+def _is_manga_allowed(chat_id):
+    """Verifica si el usuario tiene permiso para usar manga."""
+    from app.config import TELEGRAM_CHAT_ID
+    return chat_id == TELEGRAM_CHAT_ID
+
+
 def _season_label(season):
     name = season.get("Name") or "Temporada"
     index = season.get("IndexNumber")
@@ -522,7 +528,11 @@ def handle_callback(callback):
         from app.core.state_manager import state_manager
         state_manager.set_manga_menu_message(cid, msg_id)
 
-    # MANGA HANDLERS
+    # ========== MANGA HANDLERS ==========
+    # Restricción: solo TELEGRAM_CHAT_ID puede usar manga
+    if not _is_manga_allowed(chat_id):
+        return None
+
     if data == "manga:search":
         from app.core.chat_state import set_pending_followup
 
