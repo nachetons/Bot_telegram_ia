@@ -18,38 +18,6 @@ HEADERS = {
 }
 
 
-def _search_manga(query: str, limit: int = 20) -> List[dict]:
-    """Busca manga en MangaDex usando la API oficial."""
-    results = []
-    
-    try:
-        # Step 1: Search for manga titles
-        params = {
-            "title": query,
-            "limit": limit,
-            "offset": 0,
-            "includes[]": "cover_art",
-        }
-        
-        response = requests.get(
-            f"{API_BASE}/manga",
-            params=params,
-            headers=HEADERS,
-            timeout=20,
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        manga_list = data.get("data") or []
-        logger.info(f"MangaDex search: Found {len(manga_list)} results for '{query}'")
-        
-        return _parse_manga_list(manga_list, limit)
-    
-    except Exception as exc:
-        logger.error(f"MangaDex search error: {exc}")
-        raise
-
-
 def _get_popular_manga(limit: int = 20) -> List[dict]:
     """Obtiene los mangas mas populares de MangaDex."""
     try:

@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from typing import List, Optional
@@ -161,7 +162,7 @@ def _parse_manga_details(html: str, slug: str) -> dict:
     )
     if json_ld_match:
         try:
-            json_data = __import__('json').loads(json_ld_match.group(1))
+            json_data = json.loads(json_ld_match.group(1))
             if isinstance(json_data, dict) and '@graph' in json_data:
                 for item in json_data['@graph']:
                     if item.get('@type') == 'Article':
@@ -180,7 +181,7 @@ def _parse_manga_details(html: str, slug: str) -> dict:
     description = ""
     if json_ld_match:
         try:
-            json_data = __import__('json').loads(json_ld_match.group(1))
+            json_data = json.loads(json_ld_match.group(1))
             if isinstance(json_data, dict) and '@graph' in json_data:
                 for item in json_data['@graph']:
                     if item.get('@type') == 'Article':
@@ -193,7 +194,7 @@ def _parse_manga_details(html: str, slug: str) -> dict:
     image = ""
     if json_ld_match:
         try:
-            json_data = __import__('json').loads(json_ld_match.group(1))
+            json_data = json.loads(json_ld_match.group(1))
             if isinstance(json_data, dict) and '@graph' in json_data:
                 for item in json_data['@graph']:
                     if item.get('@type') == 'ImageObject':

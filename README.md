@@ -218,7 +218,7 @@ Qué incluye:
 Qué incluye:
 
 **Servidores disponibles:**
-- **Manhwaweb**: Scraping de manhwaweb.com (contenido en español)
+- **Manhwaweb**: Scraping de manhwaweb.com (contenido en español) con filtros avanzados
 - **MangaDex**: API oficial manga-dex.org (sin API key, contenido global inglés/español)
 - **VerManhwa**: Scraping de vermanhwa.com (contenido en español)
 
@@ -230,8 +230,9 @@ Qué incluye:
 
 **Funcionalidades:**
 - busqueda multi-servidor (Auto busca en todos)
-- tipos de busqueda: manga, manhwa, manhua, doujinshi
-- catalogo con orden alfabetico
+- tipos de busqueda: manga, manhwa, manhua, doujinshi, one_shot, novela
+- **Filtros avanzados Manhwaweb**: tipo, estado, demografia, erotico, generos (27+ generos)
+- catalogo con orden alfabetico y filtros combinados
 - top 10 por popularidad, valoracion y fecha
 - novedades recientes (semana/mes)
 - fichas detalladas con sinopsis, autores, generos y estado

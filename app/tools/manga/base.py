@@ -15,6 +15,22 @@ _cache_lock = threading.Lock()
 _api_cache: Dict[str, tuple] = {}
 CACHE_TTL = 300  # 5 minutes
 
+# Shared constants for manga UI and pagination
+DEFAULT_RESULTS_LIMIT = 20
+RESULTS_PER_PAGE = 10
+COMPACT_RESULTS_PER_PAGE = 12
+IMAGES_PER_PAGE = 15
+MAX_IMAGES_PER_SCREEN = 8
+CHAPTERS_TO_SHOW_INITIAL = 15
+MAX_HISTORY_ITEMS = 30
+MAX_DOWNLOAD_ITEMS = 10
+CALLBACK_TTL_DAYS = 7
+
+# Manga display constants
+MAX_TITLE_LENGTH = 42
+MAX_MENU_TEXT_LENGTH = 4096  # Telegram message length limit
+MAX_DESCRIPTION_LENGTH = 300
+
 
 def _cache_get(key: str) -> Optional[dict]:
     """Get from cache if not expired."""
@@ -142,7 +158,9 @@ def _resolve_callback(value: str, expected_kind: str = "") -> Optional[str]:
     if isinstance(item, dict):
         if expected_kind and item.get("kind") and item.get("kind") != expected_kind:
             return None
-        return item.get("url")
+        url = item.get("url")
+        if isinstance(url, str):
+            return url
     return None
 
 
@@ -196,6 +214,18 @@ def _item_to_manga(item: dict, fallback_type: str = "") -> Optional[dict]:
         return None
 
     manga_type = item.get("_tipo") or fallback_type or "manhwa"
+    
+    # Preserve filter fields for client-side filtering
+    demografi = item.get("_demografi", "")
+    erotico = item.get("_erotico", "")
+    categoris = item.get("_categoris", [])
+    if isinstance(categoris, str):
+        try:
+            import json
+            categoris = json.loads(categoris)
+        except (json.JSONDecodeError, TypeError):
+            categoris = []
+    
     return {
         "title": title,
         "url": "",  # Server-specific URL builder should set this
@@ -203,10 +233,18 @@ def _item_to_manga(item: dict, fallback_type: str = "") -> Optional[dict]:
         "type": manga_type,
         "status": item.get("_status"),
         "chapters_count": item.get("_numero_cap") or item.get("numero_cap_esp"),
+        "_demografi": demografi,  # For client-side filtering
+        "_erotico": erotico,  # For client-side filtering
+        "_categoris": categoris,  # Genre IDs for client-side filtering
     }
 
 
-def _results_menu(title: str, results: List[dict], empty_text: str, back_ref: str = "", page: int = 0, per_page: int = 10) -> dict:
+def _results_menu(title: str, results: List[dict], empty_text: str, back_ref: str = "", page: int = 0, per_page: int = RESULTS_PER_PAGE) -> dict:
+    """Search results - gallery of covers with minimal caption.
+    
+    Shows manga covers as photos (media group). Caption is clean with just pagination.
+    Buttons are simple numbered links for each manga + fav button.
+    """
     if not results:
         return {"type": "text", "text": empty_text}
 
@@ -215,69 +253,49 @@ def _results_menu(title: str, results: List[dict], empty_text: str, back_ref: st
     end_idx = min(start_idx + per_page, len(results))
     page_results = results[start_idx:end_idx]
 
+    # Collect ALL cover images for this page (gallery mode)
+    gallery_images = []
+    for manga in page_results:
+        img = manga.get("image", "") or ""
+        if img and ("http" in img or "https" in img):
+            gallery_images.append(img)
+
+    # Clean caption - just title + pagination info, NO list of titles
     lines = [title]
     if total_pages > 1:
-        lines.append(f"\n📄 Pagina {page + 1}/{total_pages}")
-    
+        lines.append(f"\U0001f4c4 Pagina {page + 1}/{total_pages}")
     lines.append("")
+    lines.append(f"{len(page_results)} resultados")
     
+    # Build simple numbered buttons with fav - compact single column
     buttons = []
-    gallery_images = []
-    
-    for local_idx, manga in enumerate(page_results, start=1):
-        global_idx = start_idx + local_idx
-        manga_title = manga.get("title", "Sin titulo")
+    for i, manga in enumerate(page_results):
+        global_idx = start_idx + i + 1
         manga_url = manga.get("url", "")
-        manga_type = (manga.get("type") or "manga").capitalize()
-        chapters = manga.get("chapters_count")
-        status = manga.get("status")
+        manga_title = _short(manga.get("title", "Sin titulo"), 25)
         
-        # Status emoji
-        status_emoji = _get_status_emoji(status) if status else ""
-        
-        # Build display line
-        suffix_parts = [f"({manga_type})"]
-        if chapters:
-            suffix_parts.append(f"{chapters} caps")
-        if status_emoji:
-            suffix_parts.insert(0, status_emoji)
-        
-        suffix = " ".join(suffix_parts)
-        display_text = f"{global_idx}. {_short(manga_title, 50)} {suffix}"
-        lines.append(display_text)
-
-        # Collect cover image for gallery - accept any valid HTTP URL
-        manga_image = manga.get("image", "") or ""
-        if manga_image and ("http" in manga_image or "https" in manga_image):
-            gallery_images.append(manga_image)
-
         read_id = _register_callback("manga", manga_url, manga_title)
-        buttons.append(
-            [
-                {"text": f"📖 Ver {global_idx}", "callback_data": f"read:{read_id}"},
-                {"text": "⭐ Fav", "callback_data": f"fav:{read_id}"},
-            ]
-        )
+        buttons.append([{"text": str(global_idx), "callback_data": f"read:{read_id}"}])
 
-    # Pagination buttons
+    # Pagination at top (single row)
     if total_pages > 1:
         nav_buttons = []
         if page > 0:
-            nav_buttons.append({"text": "⬅️ Anterior", "callback_data": f"manga:page:{back_ref}:{page - 1}"})
+            nav_buttons.append({"text": "\u2b07\ufe0f", "callback_data": f"manga:page:{back_ref}:{page - 1}"})
         if end_idx < len(results):
-            nav_buttons.append({"text": "Siguiente ➡️", "callback_data": f"manga:page:{back_ref}:{page + 1}"})
+            nav_buttons.append({"text": "\u27a1\ufe0f", "callback_data": f"manga:page:{back_ref}:{page + 1}"})
         if nav_buttons:
-            buttons.append(nav_buttons)
+            buttons.insert(0, nav_buttons)
 
     _append_back_button(buttons, back_ref)
     
     menu = {
         "type": "menu",
-        "text": "\n".join(lines)[:4096],
+        "text": "\n".join(lines)[:MAX_MENU_TEXT_LENGTH],
         "buttons": buttons,
         "results": results,
-        "image": gallery_images[0] if gallery_images else None,  # First cover for backward compat
-        "images": gallery_images,  # All covers for gallery mode
+        "image": gallery_images[0] if gallery_images else None,
+        "images": gallery_images,
         "total_pages": total_pages,
         "current_page": page,
     }
@@ -298,11 +316,11 @@ def _get_status_emoji(status: str) -> str:
     return "📖"
 
 
-def _compact_results_menu(title: str, results: List[dict], empty_text: str, back_ref: str = "", page: int = 0, per_page: int = 12) -> dict:
-    """Catalog-style listing with cover images - gallery feel.
+def _compact_results_menu(title: str, results: List[dict], empty_text: str, back_ref: str = "", page: int = 0, per_page: int = 8) -> dict:
+    """Catalog-style listing - gallery of covers with minimal caption.
     
-    Shows manga covers as photos with compact captions and inline keyboard.
-    Returns all cover images for gallery mode (album + separate buttons message).
+    Shows manga covers as photos (media group). Caption is clean with just pagination.
+    Buttons are simple numbered links for each manga.
     """
     if not results:
         return {"type": "text", "text": empty_text}
@@ -312,55 +330,37 @@ def _compact_results_menu(title: str, results: List[dict], empty_text: str, back
     end_idx = min(start_idx + per_page, len(results))
     page_results = results[start_idx:end_idx]
 
-    # Collect ALL cover images for this page (gallery mode) - accept any valid image URL
+    # Collect ALL cover images for this page (gallery mode)
     gallery_images = []
     for manga in page_results:
         img = manga.get("image", "") or ""
         if img and ("http" in img or "https" in img):
             gallery_images.append(img)
     
-    lines = [title, ""]
-    
+    # Clean caption - just title + pagination info, NO list of titles
+    lines = [title]
     if total_pages > 1:
-        lines.append(f"📄 Pagina {page + 1}/{total_pages}")
-        lines.append("")
+        lines.append(f"\U0001f4c4 Pagina {page + 1}/{total_pages}")
+    lines.append("")
+    lines.append(f"{len(page_results)} resultados")
     
+    # Build simple numbered buttons - compact, no extra text
     buttons = []
-    
-    for local_idx, manga in enumerate(page_results):
-        global_idx = start_idx + local_idx + 1
-        manga_title = _short(manga.get("title", "Sin titulo"), 35)
+    for i, manga in enumerate(page_results):
+        global_idx = start_idx + i + 1
         manga_url = manga.get("url", "")
-        manga_type = (manga.get("type") or "manga").capitalize()
-        chapters = manga.get("chapters_count")
-        status = manga.get("status")
+        manga_title = _short(manga.get("title", "Sin titulo"), 25)
         
-        # Status emoji
-        status_emoji = _get_status_emoji(status) if status else ""
-        
-        # Compact card: [Status] Title (Type | Caps)
-        meta_parts = []
-        if chapters:
-            meta_parts.append(f"{chapters} caps")
-        meta_str = f" ({', '.join(meta_parts)})" if meta_parts else ""
-        
-        header = f"{status_emoji}{global_idx}. {manga_title}" if status_emoji else f"{global_idx}. {manga_title}"
-        lines.append(header)
-        if meta_str:
-            lines.append(f"   📚 {manga_type}{meta_str}")
-
         read_id = _register_callback("manga", manga_url, manga_title)
-        buttons.append(
-            [{"text": f"📖 Ver {global_idx}", "callback_data": f"read:{read_id}"}]
-        )
+        buttons.append([{"text": str(global_idx), "callback_data": f"read:{read_id}"}])
 
-    # Pagination buttons
+    # Pagination at top (single row)
     if total_pages > 1:
         nav_buttons = []
         if page > 0:
-            nav_buttons.append({"text": "⬅️ Anterior", "callback_data": f"manga:page:{back_ref}:{page - 1}"})
+            nav_buttons.append({"text": "\u2b07\ufe0f", "callback_data": f"manga:page:{back_ref}:{page - 1}"})
         if end_idx < len(results):
-            nav_buttons.append({"text": "Siguiente ➡️", "callback_data": f"manga:page:{back_ref}:{page + 1}"})
+            nav_buttons.append({"text": "\u27a1\ufe0f", "callback_data": f"manga:page:{back_ref}:{page + 1}"})
         if nav_buttons:
             buttons.insert(0, nav_buttons)
 
@@ -368,11 +368,11 @@ def _compact_results_menu(title: str, results: List[dict], empty_text: str, back
     
     menu = {
         "type": "menu",
-        "text": "\n".join(lines)[:4096],
+        "text": "\n".join(lines)[:MAX_MENU_TEXT_LENGTH],
         "buttons": buttons,
         "results": results,
-        "image": gallery_images[0] if gallery_images else None,  # First cover for backward compat
-        "images": gallery_images,  # All covers for gallery mode
+        "image": gallery_images[0] if gallery_images else None,
+        "images": gallery_images,
         "total_pages": total_pages,
         "current_page": page,
     }

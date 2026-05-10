@@ -22,6 +22,12 @@ from app.tools.manga import base, servers
 from app.tools.manga.base import (
     MANGA_TYPES,
     CACHE_TTL,
+    MAX_DESCRIPTION_LENGTH,
+    MAX_MENU_TEXT_LENGTH,
+    MAX_TITLE_LENGTH,
+    RESULTS_PER_PAGE,
+    IMAGES_PER_PAGE,
+    CHAPTERS_TO_SHOW_INITIAL,
     _cache_get,
     _cache_set,
     _cache_clear,
@@ -144,30 +150,30 @@ def mangadex_read_details(manga_ref: str, chat_id: str = "") -> dict:
     status_emoji = _get_status_emoji(status)
     
     title = details.get("title", "Sin titulo")
-    description = (details.get("description") or "")[:300]
+    description = (details.get("description") or "")[:MAX_DESCRIPTION_LENGTH]
     authors = ", ".join(details.get("authors") or []) or "Desconocido"
     categories = details.get("categories", [])
     chapters_list = details.get("chapters", [])
     chapters_count = len(chapters_list)
     
     lines = [
-        f"🌐 {title}",
-        "━━━━━━━━━━━━━━━━━━",
+        f"\U0001f310 {title}",
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
         "",
         f"{status_emoji} {status.capitalize() if status else 'Desconocido'}",
-        f"📚 Tipo: {(details.get('type') or 'manga').capitalize()}",
-        f"✍️ Autores: {authors}",
+        f"\U0001f4da Tipo: {(details.get('type') or 'manga').capitalize()}",
+        f"\u270d\ufe0f Autores: {authors}",
     ]
     
     if categories:
-        lines.append(f"🏷️ Generos: {', '.join(categories[:3])}")
+        lines.append(f"\U0001f3f7\ufe0f Generos: {', '.join(categories[:5])}")
     
-    lines.extend(["", f"📖 Capitulos: {chapters_count}"])
+    lines.extend(["", f"\U0001f4d6 Capitulos: {chapters_count}"])
     
     if description:
         lines.extend([
             "",
-            "📝 Sinopsis:",
+            "\U0001f4dd Sinopsis:",
             f"{description}...",
         ])
 
@@ -175,7 +181,7 @@ def mangadex_read_details(manga_ref: str, chat_id: str = "") -> dict:
     manga_id_token = _register_callback("manga", manga_ref, title)
     detail_menu = {
         "type": "menu",
-        "text": "\n".join(lines)[:4096],
+        "text": "\n".join(lines)[:MAX_MENU_TEXT_LENGTH],
         "buttons": buttons,
         "image": details.get("image"),
     }
@@ -185,31 +191,31 @@ def mangadex_read_details(manga_ref: str, chat_id: str = "") -> dict:
     if chapters_list:
         latest_chap = chapters_list[-1]  # Last chapter (most recent since sorted desc)
         chap_token = _register_callback("chapter", latest_chap.get("url", ""), "Ultimo cap")
-        buttons.append([{"text": "📖 Leer ultimo cap", "callback_data": f"manga:chapter:{chap_token}:{detail_ref}"}])
+        buttons.append([{"text": "\U0001f4d6 Leer ultimo cap", "callback_data": f"manga:chapter:{chap_token}:{detail_ref}"}])
         
         # Download options for latest chapter
         buttons.append([
-            {"text": "📥 ZIP ultimo cap", "callback_data": f"manga:download_chap:{chap_token}"},
-            {"text": "📄 PDF ultimo cap", "callback_data": f"pdf_chap:{chap_token}"},
+            {"text": "\U0001f4e5 ZIP ultimo cap", "callback_data": f"manga:download_chap:{chap_token}"},
+            {"text": "\U0001f4c4 PDF ultimo cap", "callback_data": f"pdf_chap:{chap_token}"},
         ])
 
     # Chapter list (first 15)
-    chapters_to_show = chapters_list[:15]
-    has_more_chapters = len(chapters_list) > 15
+    chapters_to_show = chapters_list[:CHAPTERS_TO_SHOW_INITIAL]
+    has_more_chapters = len(chapters_list) > CHAPTERS_TO_SHOW_INITIAL
     
     for chapter in chapters_to_show:
-        chap_title = _short(chapter.get("title", f"Capitulo {chapter.get('number', '?')}"), 40)
+        chap_title = _short(chapter.get("title", f"Capitulo {chapter.get('number', '?')}"), MAX_TITLE_LENGTH)
         chapter_id = _register_callback("chapter", chapter.get("url", ""), chapter.get("title", "Capitulo"))
-        buttons.append([{"text": f"📖 {chap_title}", "callback_data": f"manga:chapter:{chapter_id}:{detail_ref}"}])
+        buttons.append([{"text": f"\U0001f4d6 {chap_title}", "callback_data": f"manga:chapter:{chapter_id}:{detail_ref}"}])
     
     if has_more_chapters:
-        remaining = len(chapters_list) - 15
+        remaining = len(chapters_list) - CHAPTERS_TO_SHOW_INITIAL
         buttons.append([{"text": f"Ver {remaining} caps mas...", "callback_data": f"manga:more_chaps:{manga_id_token}:{detail_ref}"}])
 
     buttons.extend([
         [
-            {"text": "⭐ Favorito", "callback_data": f"manga:fav:{manga_id_token}"},
-            {"text": "🌐 Abrir en MangaDex", "url": f"https://mangadex.org/title/{parts[2]}"},
+            {"text": "\u2b50 Favorito", "callback_data": f"manga:fav:{manga_id_token}"},
+            {"text": "\U0001f310 Abrir en MangaDex", "url": f"https://mangadex.org/title/{parts[2]}"},
         ],
     ])
     
@@ -226,7 +232,6 @@ def mangadex_view_chapter(chat_id: str, chapter_url: str, page: int = 0) -> dict
     if not images:
         return {"error": "Sin imagenes para este capitulo en MangaDex"}
     
-    IMAGES_PER_PAGE = 15
     total_pages = (len(images) + IMAGES_PER_PAGE - 1) // IMAGES_PER_PAGE
     
     if page >= total_pages:
@@ -327,16 +332,15 @@ def mangadex_read_chapter(chapter_ref: str, chat_id: str = "") -> dict:
 
 
 def mangadex_menu() -> dict:
-    """Menu principal de MangaDex."""
     back_ref = _register_menu_callback(manga_menu(""))
     return {
         "type": "menu",
-        "text": "🌐 MANGADEX\n\nBuscador global de manga sin API key.",
+        "text": "\U0001f310 MANGADEX\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nBuscador global de manga sin API key.",
         "buttons": [
-            [{"text": "🔍 Buscar manga", "callback_data": "manga:mangadex_search"}],
-            [{"text": "📈 Top 10 Popular", "callback_data": "manga:mangadex_top"}],
-            [{"text": "⭐ Recientes", "callback_data": "manga:mangadex_recent"}],
-            [{"text": "⬅️ Volver", "callback_data": f"manga:back:{back_ref}"}],
+            [{"text": "\U0001f50d Buscar manga", "callback_data": "manga:mangadex_search"}],
+            [{"text": "\U0001f4c8 Top 10 Popular", "callback_data": "manga:mangadex_top"}],
+            [{"text": "\u2b50 Recientes", "callback_data": "manga:mangadex_recent"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
         ],
     }
 
@@ -344,7 +348,7 @@ def mangadex_menu() -> dict:
 def mangadex_search_menu() -> dict:
     return {
         "type": "menu",
-        "text": "MANGADEX - BUSQUEDA\n\nEscribe el nombre del manga que buscas.",
+        "text": "\U0001f50d MANGADEX - BUSQUEDA\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nEscribe el nombre del manga que buscas.",
         "buttons": [[{"text": "Cancelar", "callback_data": "manga:back"}]],
     }
 
@@ -353,11 +357,11 @@ def mangadex_top_menu() -> dict:
     back_ref = _register_menu_callback(mangadex_menu())
     return {
         "type": "menu",
-        "text": "MANGADEX TOP 10\n\nElige el criterio.",
+        "text": "\U0001f3c6 TOP 10 - MANGADEX\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige el criterio.",
         "buttons": [
-            [{"text": "Popularidad", "callback_data": "manga:mangadex_top_popular"}],
-            [{"text": "Recientes", "callback_data": "manga:mangadex_recent"}],
-            [{"text": "Volver", "callback_data": f"manga:back:{back_ref}"}],
+            [{"text": "\U0001f525 Popularidad", "callback_data": "manga:mangadex_top_popular"}],
+            [{"text": "\u2b50 Recientes", "callback_data": "manga:mangadex_recent"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
         ],
     }
 
@@ -430,30 +434,30 @@ def vermanhwa_read_details(manga_ref: str, chat_id: str = "") -> dict:
     status_emoji = _get_status_emoji(status)
     
     title = details.get("title", "Sin titulo")
-    description = (details.get("description") or "")[:300]
+    description = (details.get("description") or "")[:MAX_DESCRIPTION_LENGTH]
     authors = ", ".join(details.get("authors") or []) or "Desconocido"
     categories = details.get("categories", [])
     chapters_list = details.get("chapters", [])
     chapters_count = len(chapters_list)
     
     lines = [
-        f"📖 {title}",
-        "━━━━━━━━━━━━━━━━━━",
+        f"\U0001f4d6 {title}",
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
         "",
         f"{status_emoji} {status.capitalize() if status else 'Desconocido'}",
-        f"📚 Tipo: {(details.get('type') or 'manhwa').capitalize()}",
-        f"✍️ Autores: {authors}",
+        f"\U0001f4da Tipo: {(details.get('type') or 'manhwa').capitalize()}",
+        f"\u270d\ufe0f Autores: {authors}",
     ]
     
     if categories:
-        lines.append(f"🏷️ Generos: {', '.join(categories[:3])}")
+        lines.append(f"\U0001f3f7\ufe0f Generos: {', '.join(categories[:5])}")
     
-    lines.extend(["", f"📖 Capitulos: {chapters_count}"])
+    lines.extend(["", f"\U0001f4d6 Capitulos: {chapters_count}"])
     
     if description:
         lines.extend([
             "",
-            "📝 Sinopsis:",
+            "\U0001f4dd Sinopsis:",
             f"{description}...",
         ])
 
@@ -461,7 +465,7 @@ def vermanhwa_read_details(manga_ref: str, chat_id: str = "") -> dict:
     manga_id = _register_callback("manga", details.get("url", manga_url), title)
     detail_menu = {
         "type": "menu",
-        "text": "\n".join(lines)[:4096],
+        "text": "\n".join(lines)[:MAX_MENU_TEXT_LENGTH],
         "buttons": buttons,
         "image": details.get("image"),
     }
@@ -471,31 +475,31 @@ def vermanhwa_read_details(manga_ref: str, chat_id: str = "") -> dict:
     if chapters_list:
         latest_chap = chapters_list[-1]
         chap_token = _register_callback("chapter", latest_chap.get("url", ""), "Ultimo cap")
-        buttons.append([{"text": "📖 Leer ultimo cap", "callback_data": f"vermanhwa:chapter:{chap_token}:{detail_ref}"}])
+        buttons.append([{"text": "\U0001f4d6 Leer ultimo cap", "callback_data": f"vermanhwa:chapter:{chap_token}:{detail_ref}"}])
         
         # Download options for latest chapter
         buttons.append([
-            {"text": "📥 ZIP ultimo cap", "callback_data": f"manga:download_chap:{chap_token}"},
-            {"text": "📄 PDF ultimo cap", "callback_data": f"pdf_chap:{chap_token}"},
+            {"text": "\U0001f4e5 ZIP ultimo cap", "callback_data": f"manga:download_chap:{chap_token}"},
+            {"text": "\U0001f4c4 PDF ultimo cap", "callback_data": f"pdf_chap:{chap_token}"},
         ])
 
     # Chapter list (first 15)
-    chapters_to_show = chapters_list[:15]
-    has_more_chapters = len(chapters_list) > 15
+    chapters_to_show = chapters_list[:CHAPTERS_TO_SHOW_INITIAL]
+    has_more_chapters = len(chapters_list) > CHAPTERS_TO_SHOW_INITIAL
     
     for chapter in chapters_to_show:
-        chap_title = _short(chapter.get("title", f"Capitulo {chapter.get('number', '?')}"), 40)
+        chap_title = _short(chapter.get("title", f"Capitulo {chapter.get('number', '?')}"), MAX_TITLE_LENGTH)
         chapter_id = _register_callback("chapter", chapter.get("url", ""), chapter.get("title", "Capitulo"))
-        buttons.append([{"text": f"📖 {chap_title}", "callback_data": f"vermanhwa:chapter:{chapter_id}:{detail_ref}"}])
+        buttons.append([{"text": f"\U0001f4d6 {chap_title}", "callback_data": f"vermanhwa:chapter:{chapter_id}:{detail_ref}"}])
     
     if has_more_chapters:
-        remaining = len(chapters_list) - 15
+        remaining = len(chapters_list) - CHAPTERS_TO_SHOW_INITIAL
         buttons.append([{"text": f"Ver {remaining} caps mas...", "callback_data": f"vermanhwa:more_chaps:{manga_id}:{detail_ref}"}])
 
     buttons.extend([
         [
-            {"text": "⭐ Favorito", "callback_data": f"manga:fav:{manga_id}"},
-            {"text": "🌐 Abrir en VerManhwa", "url": details.get("url", manga_url)},
+            {"text": "\u2b50 Favorito", "callback_data": f"manga:fav:{manga_id}"},
+            {"text": "\U0001f310 Abrir en VerManhwa", "url": details.get("url", manga_url)},
         ],
     ])
     
@@ -550,7 +554,6 @@ def vermanhwa_view_chapter(chat_id: str, chapter_url: str, page: int = 0) -> dic
     if not images:
         return {"error": "Sin imagenes para este capitulo en VerManhwa"}
     
-    IMAGES_PER_PAGE = 15
     total_pages = (len(images) + IMAGES_PER_PAGE - 1) // IMAGES_PER_PAGE
     
     if page >= total_pages:
@@ -612,13 +615,13 @@ def vermanhwa_menu() -> dict:
     back_ref = _register_menu_callback(manga_menu(""))
     return {
         "type": "menu",
-        "text": "📖 VERMANHWA\n━━━━━━━━━━━━━━━━━━\nBuscador de manhwas en español.",
+        "text": "\U0001f4d6 VERMANHWA\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nBuscador de manhwas en espanol.",
         "buttons": [
-            [{"text": "✨ Ultimas actualizaciones", "callback_data": "manga:vermanhwa_latest"}],
-            [{"text": "🏷️ Generos", "callback_data": "manga:vermanhwa_genres"}],
-            [{"text": "✅ Completos", "callback_data": "manga:vermanhwa_completed"}],
-            [{"text": "🔍 Buscar", "callback_data": "manga:vermanhwa_search"}],
-            [{"text": "⬅️ Volver", "callback_data": f"manga:back:{back_ref}"}],
+            [{"text": "\u2728 Ultimas actualizaciones", "callback_data": "manga:vermanhwa_latest"}],
+            [{"text": "\U0001f3f7\ufe0f Generos", "callback_data": "manga:vermanhwa_genres"}],
+            [{"text": "\u2705 Completos", "callback_data": "manga:vermanhwa_completed"}],
+            [{"text": "\U0001f50d Buscar", "callback_data": "manga:vermanhwa_search"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
         ],
     }
 
@@ -626,8 +629,32 @@ def vermanhwa_menu() -> dict:
 def vermanhwa_search_menu() -> dict:
     return {
         "type": "menu",
-        "text": "🔍 BUSQUEDA - VERMANHWA\n━━━━━━━━━━━━━━━━━━\nEscribe el nombre del manga que buscas.",
+        "text": "\U0001f50d BUSQUEDA - VERMANHWA\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nEscribe el nombre del manga que buscas.",
         "buttons": [[{"text": "Cancelar", "callback_data": "manga:back"}]],
+    }
+
+
+def vermanhwa_latest_menu() -> dict:
+    """Menu para ultimas actualizaciones."""
+    back_ref = _register_menu_callback(vermanhwa_menu())
+    return {
+        "type": "menu",
+        "text": "\u2728 ULTIMAS ACTUALIZACIONES - VERMANHWA\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nCargando...",
+        "buttons": [
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
+        ],
+    }
+
+
+def vermanhwa_completed_menu() -> dict:
+    """Menu de series completas."""
+    back_ref = _register_menu_callback(vermanhwa_menu())
+    return {
+        "type": "menu",
+        "text": "\u2705 SERIES COMPLETAS - VERMANHWA\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nCargando...",
+        "buttons": [
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
+        ],
     }
 
 
@@ -648,21 +675,15 @@ def vermanhwa_genres_menu() -> dict:
     back_ref = _register_menu_callback(vermanhwa_menu())
     return {
         "type": "menu",
-        "text": "🏷️ GENEROS - VERMANHWA\n━━━━━━━━━━━━━━━━━━\nSelecciona un genero.",
+        "text": "\U0001f3f7\ufe0f GENEROS - VERMANHWA\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nSelecciona un genero.",
         "buttons": [
-            [{"text": "🎭 Drama", "callback_data": "manga:vermanhwa_genre:drama"}],
-            [{"text": "💕 Romance", "callback_data": "manga:vermanhwa_genre:romance"}],
-            [{"text": "🔞 Maduro", "callback_data": "manga:vermanhwa_genre:maduro"}],
-            [{"text": "👥 Harem", "callback_data": "manga:vermanhwa_genre:harem"}],
-            [{"text": "🏫 Vida escolar", "callback_data": "manga:vermanhwa_genre:vida-escolar"}],
-            [{"text": "😂 Comedia", "callback_data": "manga:vermanhwa_genre:comedia"}],
-            [{"text": "💬 Cosas de la vida", "callback_data": "manga:vermanhwa_genre:cosas-de-la-vida"}],
-            [{"text": "👻 Supernatural", "callback_data": "manga:vermanhwa_genre:supernatural"}],
-            [{"text": "🔥 Smut", "callback_data": "manga:vermanhwa_genre:smut"}],
-            [{"text": "🚫 Sin censura", "callback_data": "manga:vermanhwa_genre:sin-censura"}],
-            [{"text": "⚔️ Fantasia", "callback_data": "manga:vermanhwa_genre:fantasia"}],
-            [{"text": "💥 Acción", "callback_data": "manga:vermanhwa_genre:accion"}],
-            [{"text": "⬅️ Volver", "callback_data": f"manga:back:{back_ref}"}],
+            [{"text": "\U0001f3ad Drama", "callback_data": "manga:vermanhwa_genre:drama"}, {"text": "\u2764\ufe0f Romance", "callback_data": "manga:vermanhwa_genre:romance"}],
+            [{"text": "\U0001f52e Maduro", "callback_data": "manga:vermanhwa_genre:maduro"}, {"text": "\U0001f3e5 Harem", "callback_data": "manga:vermanhwa_genre:harem"}],
+            [{"text": "\U0001f3eb Vida escolar", "callback_data": "manga:vermanhwa_genre:vida-escolar"}, {"text": "\U0001f602 Comedia", "callback_data": "manga:vermanhwa_genre:comedia"}],
+            [{"text": "\U0001f4ac Cosas de la vida", "callback_data": "manga:vermanhwa_genre:cosas-de-la-vida"}, {"text": "\U0001f47b Supernatural", "callback_data": "manga:vermanhwa_genre:supernatural"}],
+            [{"text": "\U0001f525 Smut", "callback_data": "manga:vermanhwa_genre:smut"}, {"text": "\U0001f6ab Sin censura", "callback_data": "manga:vermanhwa_genre:sin-censura"}],
+            [{"text": "\U0001f3dd\ufe0f Fantasia", "callback_data": "manga:vermanhwa_genre:fantasia"}, {"text": "\U0001f4a8 Acción", "callback_data": "manga:vermanhwa_genre:accion"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
         ],
     }
 
@@ -880,32 +901,32 @@ def manga_search(query: str, manga_type: str = "manhwa") -> dict:
         return {"results": [], "query": query, "type": manga_type, "error": str(exc)}
 
 
-def manga_menu(chat_id: str) -> dict:
-    payload = _load_user_data(chat_id)
+def manga_menu(chat_id: str = "") -> dict:
+    payload = _load_user_data(chat_id) if chat_id else {"history": [], "favorites": {}, "downloads": []}
     
     history_count = len(payload.get('history', []))
     fav_count = len(payload.get('favorites', {}))
     download_count = len(payload.get('downloads', []))
     
     text = (
-        f"📚 MANGA AGENT\n"
-        "━━━━━━━━━━━━━━━━━━\n"
+        f"\U0001f4da MANGA AGENT\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\n"
-        f"📖 Historial: {history_count}\n"
-        f"⭐ Favoritos: {fav_count}\n"
-        f"📥 Descargas: {download_count}"
+        f"\U0001f4d6 Historial: {history_count}\n"
+        f"\u2b50 Favoritos: {fav_count}\n"
+        f"\U0001f4e5 Descargas: {download_count}\n"
+        "\n"
+        f"\U0001f50d 3 servidores disponibles"
     )
     
     return {
         "type": "menu",
         "text": text,
         "buttons": [
-            [{"text": "🔍 Buscar manga", "callback_data": "manga:search"}],
-            [{"text": "📚 ManhwaWeb", "callback_data": "manga:manhwaweb"}],
-            [{"text": "🌐 MangaDex", "callback_data": "manga:mangadex"}],
-            [{"text": "📖 VerManhwa", "callback_data": "manga:vermanhwa"}],
-            [{"text": "⭐ Favoritos", "callback_data": "manga:favorites"}],
-            [{"text": "📖 Historial", "callback_data": "manga:history"}],
+            [{"text": "\U0001f50d Buscar manga", "callback_data": "manga:search"}],
+            [{"text": "\U0001f4da ManhwaWeb", "callback_data": "manga:manhwaweb"}, {"text": "\U0001f310 MangaDex", "callback_data": "manga:mangadex"}],
+            [{"text": "\U0001f4d6 VerManhwa", "callback_data": "manga:vermanhwa"}],
+            [{"text": "\u2b50 Favoritos", "callback_data": "manga:favorites"}, {"text": "\U0001f4d6 Historial", "callback_data": "manga:history"}],
         ],
     }
 
@@ -913,13 +934,12 @@ def manga_menu(chat_id: str) -> dict:
 def manga_search_menu() -> dict:
     return {
         "type": "menu",
-        "text": "BUSQUEDA DE MANGA\n\nElige donde quieres buscar.",
+        "text": "\U0001f50d BUSQUEDA DE MANGA\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige donde quieres buscar.",
         "buttons": [
             [{"text": "Auto (todos)", "callback_data": "manga:auto"}],
-            [{"text": "ManhwaWeb", "callback_data": "manga:manhwaweb"}],
-            [{"text": "MangaDex", "callback_data": "manga:mangadex"}],
-            [{"text": "VerManhwa", "callback_data": "manga:vermanhwa"}],
-            [{"text": "Volver", "callback_data": "manga:back"}],
+            [{"text": "\U0001f4da ManhwaWeb", "callback_data": "manga:manhwaweb"}, {"text": "\U0001f310 MangaDex", "callback_data": "manga:mangadex"}],
+            [{"text": "\U0001f4d6 VerManhwa", "callback_data": "manga:vermanhwa"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": "manga:back"}],
         ],
     }
 
@@ -927,38 +947,183 @@ def manga_search_menu() -> dict:
 def manga_manhwaweb_menu() -> dict:
     return {
         "type": "menu",
-        "text": "📚 MANHWA WEB\n━━━━━━━━━━━━━━━━━━\nCatalogo, busqueda, top 10 y novedades.",
+        "text": "\U0001f4da MANHWA WEB\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nSelecciona una opcion.",
         "buttons": [
-            [{"text": "📋 Catalogo", "callback_data": "manga:catalog"}],
-            [{"text": "🔍 Buscar", "callback_data": "manga:search_query"}],
-            [{"text": "🏆 Top 10", "callback_data": "manga:top10"}],
-            [{"text": "✨ Nuevo", "callback_data": "manga:new"}],
-            [{"text": "⬅️ Volver", "callback_data": "manga:back"}],
+            [{"text": "\U0001f4cb Catalogo", "callback_data": "manga:mw_catalog"}],
+            [{"text": "\U0001f50d Buscar manga", "callback_data": "manga:search_query"}],
+            [{"text": "\U0001f3c6 Top 10", "callback_data": "manga:mw_top10"}],
+            [{"text": "\u2728 Novedades", "callback_data": "manga:mw_new"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": "manga:back"}],
         ],
     }
 
 
-def manga_catalog_menu(chat_id: str, page: int = 0) -> dict:
+def manga_manhwaweb_catalog_menu() -> dict:
+    """Menu principal del catalogo con filtros disponibles en la web."""
+    back_ref = _register_menu_callback(manga_manhwaweb_menu())
+    
+    return {
+        "type": "menu",
+        "text": "\U0001f4cb CATALOGO - MANHWA WEB\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige un filtro para refinar.",
+        "buttons": [
+            [{"text": "\U0001f1f0\U0001f1f1 Manhwa", "callback_data": f"manga:mw_filter:tipo:manhwa:{back_ref}"}, {"text": "\U0001f1ef\U0001f1f5 Manga", "callback_data": f"manga:mw_filter:tipo:manga:{back_ref}"}],
+            [{"text": "\U0001f1e8\U0001f1f3 Manhua", "callback_data": f"manga:mw_filter:tipo:manhua:{back_ref}"}, {"text": "\U0001f4d6 Novela", "callback_data": f"manga:mw_filter:tipo:novela:{back_ref}"}],
+            [{"text": "\U0001f3a8 Doujinshi", "callback_data": f"manga:mw_filter:tipo:doujinshi:{back_ref}"}, {"text": "\U0001f4c4 One Shot", "callback_data": f"manga:mw_filter:tipo:one_shot:{back_ref}"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
+        ],
+    }
+
+
+def manga_manhwaweb_state_menu() -> dict:
+    """Menu para filtrar por estado de publicacion."""
+    back_ref = _register_menu_callback(manga_manhwaweb_catalog_menu())
+    
+    return {
+        "type": "menu",
+        "text": "\U0001f4ca FILTRO - ESTADO\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige el estado.",
+        "buttons": [
+            [{"text": "\U0001f504 Publicandose", "callback_data": f"manga:mw_filter:estado:publicandose:{back_ref}"}, {"text": "\u23f8\ufe0f Pausado", "callback_data": f"manga:mw_filter:estado:pausado:{back_ref}"}],
+            [{"text": "\u2705 Finalizado", "callback_data": f"manga:mw_filter:estado:finalizado:{back_ref}"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
+        ],
+    }
+
+
+def manga_manhwaweb_demo_menu() -> dict:
+    """Menu para filtrar por demografia."""
+    back_ref = _register_menu_callback(manga_manhwaweb_catalog_menu())
+    
+    return {
+        "type": "menu",
+        "text": "\U0001f465 FILTRO - DEMOGRAFIA\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige la demografia.",
+        "buttons": [
+            [{"text": "\U0001f9d1 Seinen", "callback_data": f"manga:mw_filter:demografia:seinen:{back_ref}"}, {"text": "\U0001f466 Shonen", "callback_data": f"manga:mw_filter:demografia:shonen:{back_ref}"}],
+            [{"text": "\U0001f469 Josei", "callback_data": f"manga:mw_filter:demografia:josei:{back_ref}"}, {"text": "\U0001f467 Shojo", "callback_data": f"manga:mw_filter:demografia:shojo:{back_ref}"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
+        ],
+    }
+
+
+def manga_manhwaweb_erotic_menu() -> dict:
+    """Menu para filtrar por contenido erotico."""
+    back_ref = _register_menu_callback(manga_manhwaweb_catalog_menu())
+    
+    return {
+        "type": "menu",
+        "text": "\U0001f52e FILTRO - EROTICO\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige el tipo.",
+        "buttons": [
+            [{"text": "\u2705 Si", "callback_data": f"manga:mw_filter:erotico:si:{back_ref}"}, {"text": "\u274c No", "callback_data": f"manga:mw_filter:erotico:no:{back_ref}"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
+        ],
+    }
+
+
+def manga_manhwaweb_genre_menu() -> dict:
+    """Menu para filtrar por genero."""
+    back_ref = _register_menu_callback(manga_manhwaweb_catalog_menu())
+    
+    # Generos mas populares primero - organizados en filas de 2
+    popular_genres = [
+        (2, "\u2764\ufe0f Romance"), (1, "\U0001f3aa Drama"), (18, "\U0001f602 Comedia"), (6, "\U0001f3e5 Harem"),
+        (23, "\U0001f3dd\ufe0f Fantasía"), (30, "\U0001f525 Ecchi"), (37, "\u2694\ufe0f Sistema de niveles"),
+        (41, "\U0001f501 Reencarnación"), (3, "\U0001f4a8 Acción"), (29, "\U0001f3c0 Aventura"),
+    ]
+    
+    buttons = []
+    for gid, name in popular_genres:
+        buttons.append([{"text": f"{name}", "callback_data": f"manga:mw_filter:genero:{gid}:{back_ref}"}])
+    
+    # Mas generos en segunda fila si hay espacio
+    other_genres = [
+        (31, "\U0001f47b Sobrenatural"), (5, "\u2696\ufe0f Venganza"), (25, "\U0001f494 Tragedia"),
+        (43, "\U0001f9e8 Psicológico"), (8, "\U0001f470 Milf"), (42, "\U0001f3e0 Recuentos de la vida"),
+    ]
+    
+    for gid, name in other_genres:
+        buttons.append([{"text": f"{name}", "callback_data": f"manga:mw_filter:genero:{gid}:{back_ref}"}])
+    
+    if buttons:
+        buttons.append([{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}])
+    
+    return {
+        "type": "menu",
+        "text": "\U0001f3f7\ufe0f FILTRO - GENEROS\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige un genero.",
+        "buttons": buttons,
+    }
+
+
+def manga_manhwaweb_top10_menu() -> dict:
+    """Menu para elegir criterio en Top 10."""
+    back_ref = _register_menu_callback(manga_manhwaweb_menu())
+    
+    return {
+        "type": "menu",
+        "text": "\U0001f3c6 TOP 10 - MANHWA WEB\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige el criterio.",
+        "buttons": [
+            [{"text": "\U0001f525 Popularidad", "callback_data": f"manga:mw_top:popular:{back_ref}"}, {"text": "\u2b50 Valoracion", "callback_data": f"manga:mw_top:rated:{back_ref}"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
+        ],
+    }
+
+
+def manga_manhwaweb_new_menu() -> dict:
+    """Menu para elegir periodo en Novedades."""
+    back_ref = _register_menu_callback(manga_manhwaweb_menu())
+    
+    return {
+        "type": "menu",
+        "text": "\u2728 NOVEDADES - MANHWA WEB\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige el periodo.",
+        "buttons": [
+            [{"text": "\U0001f4c5 Esta semana", "callback_data": f"manga:mw_new:week:{back_ref}"}, {"text": "\U0001f4c6 Este mes", "callback_data": f"manga:mw_new:month:{back_ref}"}],
+            [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
+        ],
+    }
+
+
+def manga_manhwaweb_list(type_key: str, order_item: str = "alfabetico", filters: dict = None) -> dict:
+    """Muestra resultados de un tipo especifico con ordenamiento y filtros."""
+    labels = {
+        "manhwa": "🇰🇷 MANHWA",
+        "manga": "🇯🇵 MANGA",
+        "manhua": "🇨🇳 MANHUA",
+        "doujinshi": "🎨 DOUJINSHI",
+        "novela": "📖 NOVELAS",
+        "one_shot": "📄 ONE SHOT",
+    }
+    
+    title = labels.get(type_key, f"📚 {type_key.upper()}")
+    
+    # Combinar filtros base (tipo) con filtros adicionales
+    combined_filters = {"tipo": type_key}
+    if filters:
+        combined_filters.update(filters)
+    
     try:
-        results = _manhwaweb._library_request("", "", order_item="alfabetico", limit=20)
+        # IMPORTANTE: No pasar manga_type al API porque ya lo manejamos via filters
+        # El API ignora los parametros, asi que fetcheamos todo y filtramos del lado del cliente
+        results = _manhwaweb._library_request("", "", order_item=order_item, limit=20, filters=combined_filters)
     except Exception as exc:
-        return {"type": "text", "text": f"No pude cargar el catalogo: {exc}"}
+        return {"type": "text", "text": f"No pude cargar {title}: {exc}"}
+    
+    if not results:
+        return {"type": "text", "text": f"No hay resultados para '{type_key}' con estos filtros."}
+    
+    back_ref = _register_menu_callback(manga_manhwaweb_catalog_menu())
     return _compact_results_menu(
-        "📋 CATALOGO - MANHWA WEB",
+        title,
         results,
-        "No hay mangas en el catalogo ahora mismo.",
-        _register_menu_callback(manga_manhwaweb_menu()),
-        page=page,
+        f"No hay {type_key} disponibles.",
+        back_ref,
     )
 
 
 def manga_handle_top10(sort_type: str) -> dict:
-    labels = {"popular": "🔥 Popularidad", "rated": "⭐ Valoracion", "newest": "📅 Fecha"}
+    """Muestra Top 10 de un criterio especifico."""
+    labels = {"popular": "🔥 Popularidad", "rated": "⭐ Valoracion"}
     
     order_by = {
         "popular": "view_count",
         "rated": "rate_avg",
-        "newest": "timestamp",
     }.get(sort_type, "view_count")
     
     try:
@@ -967,17 +1132,21 @@ def manga_handle_top10(sort_type: str) -> dict:
         logger.error(f"manga_handle_top10 error ({sort_type}): {exc}")
         results = []
     
+    if not results:
+        return {"type": "text", "text": f"No hay resultados para {labels.get(sort_type, sort_type)}."}
+    
+    back_ref = _register_menu_callback(manga_manhwaweb_top10_menu())
     return _compact_results_menu(
         f"🏆 TOP 10 {labels.get(sort_type, sort_type)} - MANHWA WEB",
         results,
         f"No encontre mangas por {labels.get(sort_type, sort_type)}.",
-        _register_menu_callback(manga_top10_menu()),
+        back_ref,
     )
 
 
 def manga_handle_new(timeframe: str) -> dict:
+    """Muestra novedades de un periodo especifico."""
     labels = {"week": "📅 Esta semana", "month": "🗓️ Este mes"}
-    label = labels.get(timeframe, timeframe)
     
     try:
         results = _manhwaweb._library_request("", "", order_item="timestamp", limit=20)
@@ -985,47 +1154,31 @@ def manga_handle_new(timeframe: str) -> dict:
         logger.error(f"manga_handle_new error ({timeframe}): {exc}")
         results = []
     
+    if not results:
+        return {"type": "text", "text": f"No hay novedades para {labels.get(timeframe, timeframe)}."}
+    
+    back_ref = _register_menu_callback(manga_manhwaweb_new_menu())
     return _compact_results_menu(
-        f"✨ NOVEDADES - MANHWA WEB\n{label}",
+        f"✨ NOVEDADES - MANHWA WEB\n{labels.get(timeframe, timeframe)}",
         results,
-        f"No encontre novedades para {label}.",
-        _register_menu_callback(manga_new_menu()),
+        "No encontre novedades recientes.",
+        back_ref,
     )
 
 
-def manga_search_query(chat_id: str) -> dict:
-    return {
-        "type": "menu",
-        "text": "BUSCAR MANGA\n\nEscribe el nombre del manga que buscas.",
-        "buttons": [[{"text": "Cancelar", "callback_data": "manga:back"}]],
-    }
+def manga_catalog_menu(chat_id: str, page: int = 0) -> dict:
+    """Deprecated: usa manga_manhwaweb_catalog_menu() en su lugar."""
+    return manga_manhwaweb_catalog_menu()
 
 
 def manga_top10_menu() -> dict:
-    back_ref = _register_menu_callback(manga_manhwaweb_menu())
-    return {
-        "type": "menu",
-        "text": "TOP 10 MANGAS\n\nElige el criterio.",
-        "buttons": [
-            [{"text": "Popularidad", "callback_data": "manga:tp"}],
-            [{"text": "Valoracion", "callback_data": "manga:nr"}],
-            [{"text": "Fecha", "callback_data": "manga:nd"}],
-            [{"text": "Volver", "callback_data": f"manga:back:{back_ref}"}],
-        ],
-    }
+    """Deprecated: usa manga_manhwaweb_top10_menu() en su lugar."""
+    return manga_manhwaweb_top10_menu()
 
 
 def manga_new_menu() -> dict:
-    back_ref = _register_menu_callback(manga_manhwaweb_menu())
-    return {
-        "type": "menu",
-        "text": "NUEVOS MANGAS\n\nElige periodo.",
-        "buttons": [
-            [{"text": "Esta semana", "callback_data": "manga:nw"}],
-            [{"text": "Este mes", "callback_data": "manga:nm"}],
-            [{"text": "Volver", "callback_data": f"manga:back:{back_ref}"}],
-        ],
-    }
+    """Deprecated: usa manga_manhwaweb_new_menu() en su lugar."""
+    return manga_manhwaweb_new_menu()
 
 
 def manga_auto_search(chat_id: str, query: str) -> dict:
@@ -1082,7 +1235,7 @@ def manga_read_details(manga_ref: str, chat_id: str = "") -> dict:
     status_emoji = _get_status_emoji(status)
     
     title = details.get("title", "Sin titulo")
-    description = _clean_text(details.get("description"))[:300]
+    description = _clean_text(details.get("description"))[:MAX_DESCRIPTION_LENGTH]
     authors = ", ".join(details.get("authors") or []) or "Desconocido"
     categories = details.get("categories", [])
     chapters_list = details.get("chapters", [])
@@ -1090,23 +1243,23 @@ def manga_read_details(manga_ref: str, chat_id: str = "") -> dict:
     
     # Build formatted text
     lines = [
-        f"📚 {title}",
-        "━━━━━━━━━━━━━━━━━━",
+        f"\U0001f4da {title}",
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
         "",
         f"{status_emoji} {status.capitalize() if status else 'Desconocido'}",
-        f"📚 Tipo: {(details.get('type') or 'manga').capitalize()}",
-        f"✍️ Autores: {authors}",
+        f"\U0001f4da Tipo: {(details.get('type') or 'manga').capitalize()}",
+        f"\u270d\ufe0f Autores: {authors}",
     ]
     
     if categories:
-        lines.append(f"🏷️ Generos: {', '.join(categories[:3])}")
+        lines.append(f"\U0001f3f7\ufe0f Generos: {', '.join(categories[:5])}")
     
-    lines.extend(["", f"📖 Capitulos: {chapters_count}"])
+    lines.extend(["", f"\U0001f4d6 Capitulos: {chapters_count}"])
     
     if description:
         lines.extend([
             "",
-            "📝 Sinopsis:",
+            "\U0001f4dd Sinopsis:",
             f"{description}...",
         ])
 
@@ -1114,7 +1267,7 @@ def manga_read_details(manga_ref: str, chat_id: str = "") -> dict:
     manga_id_token = _register_callback("manga", details.get("url", manga_url), title)
     detail_menu = {
         "type": "menu",
-        "text": "\n".join(lines)[:4096],
+        "text": "\n".join(lines)[:MAX_MENU_TEXT_LENGTH],
         "buttons": buttons,
         "image": details.get("image"),
     }
@@ -1124,31 +1277,31 @@ def manga_read_details(manga_ref: str, chat_id: str = "") -> dict:
     if chapters_list:
         latest_chap = chapters_list[-1]  # Last chapter (most recent)
         chap_token = _register_callback("chapter", latest_chap.get("url", ""), "Ultimo cap")
-        buttons.append([{"text": "📖 Leer ultimo cap", "callback_data": f"manga:chapter:{chap_token}:{detail_ref}"}])
+        buttons.append([{"text": "\U0001f4d6 Leer ultimo cap", "callback_data": f"manga:chapter:{chap_token}:{detail_ref}"}])
         
         # Download latest chapter options
         buttons.append([
-            {"text": "📥 ZIP ultimo cap", "callback_data": f"manga:download_chap:{chap_token}"},
-            {"text": "📄 PDF ultimo cap", "callback_data": f"pdf_chap:{chap_token}"},
+            {"text": "\U0001f4e5 ZIP ultimo cap", "callback_data": f"manga:download_chap:{chap_token}"},
+            {"text": "\U0001f4c4 PDF ultimo cap", "callback_data": f"pdf_chap:{chap_token}"},
         ])
 
     # Chapter list (first 15, with pagination for more)
-    chapters_to_show = chapters_list[:15]
-    has_more_chapters = len(chapters_list) > 15
+    chapters_to_show = chapters_list[:CHAPTERS_TO_SHOW_INITIAL]
+    has_more_chapters = len(chapters_list) > CHAPTERS_TO_SHOW_INITIAL
     
     for chapter in chapters_to_show:
-        chap_title = _short(chapter.get("title", f"Capitulo {chapter.get('number', '?')}"), 40)
+        chap_title = _short(chapter.get("title", f"Capitulo {chapter.get('number', '?')}"), MAX_TITLE_LENGTH)
         chapter_id = _register_callback("chapter", chapter.get("url", ""), chapter.get("title", "Capitulo"))
-        buttons.append([{"text": f"📖 {chap_title}", "callback_data": f"manga:chapter:{chapter_id}:{detail_ref}"}])
+        buttons.append([{"text": f"\U0001f4d6 {chap_title}", "callback_data": f"manga:chapter:{chapter_id}:{detail_ref}"}])
     
     if has_more_chapters:
-        remaining = len(chapters_list) - 15
+        remaining = len(chapters_list) - CHAPTERS_TO_SHOW_INITIAL
         buttons.append([{"text": f"Ver {remaining} caps mas...", "callback_data": f"manga:more_chaps:{manga_id_token}:{detail_ref}"}])
 
     buttons.extend([
         [
-            {"text": "⭐ Favorito", "callback_data": f"manga:fav:{manga_id_token}"},
-            {"text": "🌐 Abrir web", "url": details.get("url", manga_url)},
+            {"text": "\u2b50 Favorito", "callback_data": f"manga:fav:{manga_id_token}"},
+            {"text": "\U0001f310 Abrir web", "url": details.get("url", manga_url)},
         ],
     ])
     
@@ -1175,16 +1328,14 @@ def manga_read_chapter(chapter_ref: str, chat_id: str = "") -> dict:
     
     buttons = [[{"text": "🌐 Abrir capitulo web", "url": chapter_url}]]
     
-    # Show first 5 pages as quick links
-    for index, image_url in enumerate(images[:5], start=1):
-        buttons.append([{"text": f"🖼️ Pag {index}", "url": image_url}])
+    # Check if images are real full-page images (not Manhwaweb thumbnails via weserv proxy)
+    is_weserv_thumbs = any("images.weserv.nl" in u for u in images)
     
-    if len(images) > 5:
-        remaining = len(images) - 5
-        buttons.append([{"text": f"... ver {remaining} paginas mas", "callback_data": f"manga:view:{chap_token}:0"}])
+    if not is_weserv_thumbs and len(images) > 5:
+        buttons.append([{"text": f"... ver {len(images) - 5} paginas mas", "callback_data": f"manga:view:{chap_token}:0"}])
     
-    # Download options
-    if images:
+    # Download options only for real images (not thumbnails)
+    if not is_weserv_thumbs and len(images) > 1:
         buttons.extend([
             [
                 {"text": "📥 Descargar ZIP", "callback_data": f"manga:download_chap:{chap_token}"},
@@ -1195,10 +1346,12 @@ def manga_read_chapter(chapter_ref: str, chat_id: str = "") -> dict:
     _append_back_button(buttons, back_ref)
 
     text = f"📖 Capitulo\n📄 {len(images)} paginas detectadas"
-    if not images:
-        text += "\n\n⚠️ No pude extraer paginas desde la API, pero puedes abrirlo en la web."
+    if is_weserv_thumbs:
+        text += "\n⚠️ Solo thumbnails disponibles. Abre el capitulo en la web para ver las paginas completas."
+    elif not images:
+        text += "\n\n⚠️ No pude extraer paginas, pero puedes abrirlo en la web."
     
-    return {"type": "menu", "text": text, "buttons": buttons, "images": images[:3], "image": images[0] if images else None}
+    return {"type": "menu", "text": text, "buttons": buttons, "images": images[:3] if not is_weserv_thumbs else None, "image": images[0] if (not is_weserv_thumbs and images) else None}
 
 
 def manga_add_history(chat_id: str, title: str, url: str):
@@ -1252,7 +1405,30 @@ def manga_get_history(chat_id: str) -> dict:
     items = payload.get("history", [])
     if not items:
         return {"type": "text", "text": "Sin historial de mangas."}
-    return _results_menu("HISTORIAL DE MANGAS", items, "Sin historial de mangas.")
+
+    gallery_images = []
+    buttons = []
+    
+    for i, item in enumerate(items):
+        global_idx = i + 1
+        manga_url = item.get("url", "")
+        
+        # Collect cover image if available
+        img = item.get("image", "") or ""
+        if img and ("http" in img or "https" in img):
+            gallery_images.append(img)
+        
+        hist_id = _register_callback("manga", manga_url, item.get("title", "Sin titulo"))
+        buttons.append([{"text": str(global_idx), "callback_data": f"read:{hist_id}"}])
+
+    _append_back_button(buttons, "")
+    
+    return {
+        "type": "menu",
+        "text": "\U0001f4d6 HISTORIAL DE MANGAS\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n" + f"{len(items)} leidos",
+        "buttons": buttons,
+        "images": gallery_images,
+    }
 
 
 def manga_get_favorites(chat_id: str) -> dict:
@@ -1261,11 +1437,30 @@ def manga_get_favorites(chat_id: str) -> dict:
     if not items:
         return {"type": "text", "text": "Sin favoritos guardados."}
 
-    menu = _results_menu("MIS FAVORITOS", items, "Sin favoritos guardados.")
-    for row, item in zip(menu.get("buttons", []), items):
-        fav_id = _register_callback("manga", item.get("url", ""), item.get("title", "Manga"))
-        row.append({"text": "Quitar", "callback_data": f"manga:unfav:{fav_id}"})
-    return menu
+    gallery_images = []
+    buttons = []
+    
+    for i, item in enumerate(items):
+        global_idx = i + 1
+        manga_url = item.get("url", "")
+        manga_title = _short(item.get("title", "Sin titulo"), 25)
+        
+        # Collect cover image
+        img = item.get("image", "") or ""
+        if img and ("http" in img or "https" in img):
+            gallery_images.append(img)
+        
+        fav_id = _register_callback("manga", manga_url, manga_title)
+        buttons.append([{"text": str(global_idx), "callback_data": f"read:{fav_id}"}])
+
+    _append_back_button(buttons, "")
+    
+    return {
+        "type": "menu",
+        "text": "\U0001f310 MIS FAVORITOS\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n" + f"{len(items)} guardados",
+        "buttons": buttons,
+        "images": gallery_images,
+    }
 
 
 def manga_get_downloads(chat_id: str) -> dict:
@@ -1314,8 +1509,17 @@ def manga_view_chapter(chat_id: str, chapter_url: str, page: int = 0) -> dict:
     if not images:
         return {"error": "Sin imagenes para este capitulo"}
     
+    # Check if images are Manhwaweb thumbnails via weserv proxy
+    is_weserv_thumbs = any("images.weserv.nl" in u for u in images)
+    
+    if is_weserv_thumbs:
+        return {
+            "type": "menu",
+            "text": "⚠️ Solo hay thumbnails disponibles para este capitulo.\nAbre el capitulo en la web para ver las paginas completas.",
+            "buttons": [[{"text": "🌐 Abrir capitulo web", "url": chapter_url}]],
+        }
+    
     # Mostrar 15 paginas por pantalla para mejor UX
-    IMAGES_PER_PAGE = 15
     total_pages = (len(images) + IMAGES_PER_PAGE - 1) // IMAGES_PER_PAGE
     
     if page >= total_pages:
@@ -1382,6 +1586,11 @@ def manga_download_chapter(chat_id: str, chapter_url: str) -> dict:
     if not images:
         return {"error": "Sin imagenes para descargar"}
     
+    # Check if images are Manhwaweb thumbnails via weserv proxy (not downloadable as full pages)
+    is_weserv_thumbs = any("images.weserv.nl" in u for u in images)
+    if is_weserv_thumbs:
+        return {"error": "Solo hay thumbnails disponibles. Abre el capitulo en la web para descargar."}
+    
     base.logger.info(f"manga_download_chapter: Found {len(images)} images")
     
     zip_buffer = BytesIO()
@@ -1436,11 +1645,17 @@ def manga_download_full(chat_id: str, manga_url: str) -> dict:
         for chapter in chapters:
             chapter_num = chapter.get("number") or chapter.get("chapter", 1)
             
-            # Obtener imagenes usando la función del servidor
+            # Obtener imagenes usando la funcion del servidor
             images = _manhwaweb._get_chapter_images(chapter.get("url", ""))
             
             if not images:
                 failed_chapters.append(str(chapter_num))
+                continue
+            
+            # Skip chapters with weserv thumbnails (not real full-page images)
+            is_weserv_thumbs = any("images.weserv.nl" in u for u in images)
+            if is_weserv_thumbs:
+                failed_chapters.append(f"{chapter_num} (thumbnails)")
                 continue
             
             for idx, img_url in enumerate(images):
@@ -1479,6 +1694,14 @@ def manga_view_full(chat_id: str, manga_url: str) -> dict:
     
     chapters = details.get("chapters", [])
     
+    # Check if any chapter has real images (not just thumbnails) for download options
+    has_real_images = False
+    for chapter in chapters[:5]:  # Check first 5 chapters as sample
+        images = _manhwaweb._get_chapter_images(chapter.get("url", ""))
+        if images and not any("images.weserv.nl" in u for u in images):
+            has_real_images = True
+            break
+    
     lines = [
         f"{details.get('title', 'Sin titulo')}",
         f"Capitulos: {len(chapters)}"
@@ -1493,7 +1716,7 @@ def manga_view_full(chat_id: str, manga_url: str) -> dict:
         chap_title = chapter.get("title", f"Capitulo {idx}")[:30]
         chap_url = chapter.get("url", "")
         
-        # Token para cada capítulo
+        # Token para cada capitulo
         chap_token = _register_callback("chapter", chap_url)
         
         buttons.append([
@@ -1504,6 +1727,19 @@ def manga_view_full(chat_id: str, manga_url: str) -> dict:
             {
                 "text": "📥",
                 "callback_data": f"download_chap:{chap_token}"
+            },
+        ])
+    
+    # Only show full download options if we have real images (not thumbnails)
+    if has_real_images:
+        buttons.append([
+            {
+                "text": "⬇️ Descargar ZIP todo",
+                "callback_data": f"download_full:{manga_token}"
+            },
+            {
+                "text": "📄 Exportar PDF todo",
+                "callback_data": f"pdf_full:{manga_token}"
             },
         ])
     
@@ -1534,6 +1770,11 @@ def manga_export_chapter_pdf(chat_id: str, chapter_url: str) -> dict:
     
     if not images:
         return {"error": "Sin imagenes para exportar"}
+    
+    # Check if images are Manhwaweb thumbnails via weserv proxy (not downloadable as full pages)
+    is_weserv_thumbs = any("images.weserv.nl" in u for u in images)
+    if is_weserv_thumbs:
+        return {"error": "Solo hay thumbnails disponibles. Abre el capitulo en la web para exportar."}
     
     base.logger.info(f"manga_export_chapter_pdf: Found {len(images)} images")
     
@@ -1610,6 +1851,12 @@ def manga_export_full_pdf(chat_id: str, manga_url: str) -> dict:
         
         if not images:
             base.logger.warning(f"No images for chapter {chapter_num}")
+            continue
+        
+        # Skip chapters with weserv thumbnails (not real full-page images)
+        is_weserv_thumbs = any("images.weserv.nl" in u for u in images)
+        if is_weserv_thumbs:
+            base.logger.warning(f"Chapter {chapter_num} has only thumbnails, skipping")
             continue
         
         for idx, img_url in enumerate(images):

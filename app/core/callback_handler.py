@@ -1,7 +1,9 @@
 from app.tools.jellyfin import jellyfin
 from app.tools.youtube import download_youtube_audio, download_youtube_video
 from app.tools.manga import (
-    manga_menu, manga_search_menu, manga_auto_search, manga_manhwaweb_menu, manga_catalog_menu, manga_top10_menu, manga_new_menu,
+    manga_menu, manga_search_menu, manga_auto_search, manga_manhwaweb_menu, 
+    manga_manhwaweb_catalog_menu, manga_manhwaweb_top10_menu, manga_manhwaweb_new_menu, 
+    manga_manhwaweb_list, manga_handle_top10, manga_handle_new,
     mangadex_menu, mangadex_search_menu, mangadex_read_details, mangadex_view_chapter, mangadex_read_chapter, mangadex_top_menu,
     mangadex_auto_search, vermanhwa_menu, vermanhwa_search_menu, vermanhwa_read_details, vermanhwa_view_chapter, vermanhwa_read_chapter,
     _results_menu, _compact_results_menu, _resolve_callback, manga_add_favorite, _vermanhwa, _register_menu_callback,
@@ -572,9 +574,125 @@ def handle_callback(callback):
         result["_edit"] = True  # Forzar edición en lugar de nuevo mensaje
         return result
 
+    # MANGA - MANHWA WEB (nuevo con back_refs y filtros)
+    
+    if data == "manga:mw_catalog":
+        from app.tools.manga import manga_manhwaweb_catalog_menu
+        
+        result = manga_manhwaweb_catalog_menu()
+        result["_edit"] = True
+        return result
+    
+    # Filtros del catalogo (tipo, estado, demografia, erotico, genero)
+    if data.startswith("manga:mw_filter:"):
+        # Formato: manga:mw_filter:{filter_type}:{filter_value}:{back_ref}
+        parts = data.split(":")
+        filter_key = parts[2] if len(parts) > 2 else ""
+        filter_value = parts[3] if len(parts) > 3 else ""
+        back_ref = parts[4] if len(parts) > 4 else ""
+        
+        from app.tools.manga import manga_manhwaweb_catalog_menu, manga_manhwaweb_list
+        
+        # Construir filtros segun el tipo seleccionado
+        filters = {}
+        if filter_key == "tipo":
+            filters["tipo"] = filter_value
+            result = manga_manhwaweb_list(filter_value, order_item="alfabetico", filters=filters)
+        elif filter_key == "estado":
+            # Para estado, necesitamos obtener el tipo actual desde el back_ref o usar manhwa por defecto
+            # Por simplicidad, mostramos menu de tipos primero si no hay filtro de tipo
+            result = manga_manhwaweb_list("manhwa", order_item="alfabetico", filters={"estado": filter_value})
+        elif filter_key == "demografia":
+            result = manga_manhwaweb_list("manhwa", order_item="alfabetico", filters={"demografia": filter_value})
+        elif filter_key == "erotico":
+            result = manga_manhwaweb_list("manhwa", order_item="alfabetico", filters={"erotico": filter_value})
+        elif filter_key == "genero":
+            # Genero es un ID numerico (2=Romance, 1=Drama, etc)
+            try:
+                genre_id = int(filter_value)
+                result = manga_manhwaweb_list("manhwa", order_item="alfabetico", filters={"genero": genre_id})
+            except ValueError:
+                result = {"type": "text", "text": "Genero invalido."}
+        else:
+            result = manga_manhwaweb_catalog_menu()
+        
+        if isinstance(result, dict):
+            result["_edit"] = True
+        return result
+    
+    # Submenus de filtros adicionales (estado, demografia, erotico, generos)
+    if data == "manga:mw_states":
+        from app.tools.manga import manga_manhwaweb_state_menu
+        
+        result = manga_manhwaweb_state_menu()
+        result["_edit"] = True
+        return result
+    
+    if data == "manga:mw_demo":
+        from app.tools.manga import manga_manhwaweb_demo_menu
+        
+        result = manga_manhwaweb_demo_menu()
+        result["_edit"] = True
+        return result
+    
+    if data == "manga:mw_erotic":
+        from app.tools.manga import manga_manhwaweb_erotic_menu
+        
+        result = manga_manhwaweb_erotic_menu()
+        result["_edit"] = True
+        return result
+    
+    if data == "manga:mw_genres":
+        from app.tools.manga import manga_manhwaweb_genre_menu
+        
+        result = manga_manhwaweb_genre_menu()
+        result["_edit"] = True
+        return result
+    
+    # Top 10 y Novedades
+    if data == "manga:mw_top10":
+        from app.tools.manga import manga_manhwaweb_top10_menu
+        
+        result = manga_manhwaweb_top10_menu()
+        result["_edit"] = True
+        return result
+    
+    if data.startswith("manga:mw_top:"):
+        # Formato: manga:mw_top:{sort_type}:{back_ref}
+        parts = data.split(":")
+        sort_type = parts[2] if len(parts) > 2 else "popular"
+        
+        from app.tools.manga import manga_handle_top10
+        
+        result = manga_handle_top10(sort_type)
+        result["_edit"] = True
+        return result
+    
+    if data == "manga:mw_new":
+        from app.tools.manga import manga_manhwaweb_new_menu
+        
+        result = manga_manhwaweb_new_menu()
+        result["_edit"] = True
+        return result
+    
+    if data.startswith("manga:mw_new:"):
+        # Formato: manga:mw_new:{timeframe}:{back_ref}
+        parts = data.split(":")
+        timeframe = parts[2] if len(parts) > 2 else "week"
+        
+        from app.tools.manga import manga_handle_new
+        
+        result = manga_handle_new(timeframe)
+        result["_edit"] = True
+        return result
+    
+    # MANGA - Manhwaweb (legacy, redirige a nuevos callbacks)
+    
     if data == "manga:catalog":
-        result = manga_catalog_menu(chat_id)
-        result["_edit"] = True  # Forzar edición en lugar de nuevo mensaje
+        from app.tools.manga import manga_manhwaweb_catalog_menu
+        
+        result = manga_manhwaweb_catalog_menu()
+        result["_edit"] = True  # Forzar edicion en lugar de nuevo mensaje
         return result
 
     if data == "manga:search_query":
@@ -588,15 +706,72 @@ def handle_callback(callback):
 
         return {
             "type": "menu",
-            "text": "ð🔍 BUSCAR MANGA\n\nEscribe el nombre del manga que buscas:",
+            "text": "🔍 BUSCAR MANGA\n\nEscribe el nombre del manga que buscas:",
             "buttons": []
         }
 
     if data == "manga:top10":
-        from app.tools.manga import manga_top10_menu, manga_handle_top10
+        # Legacy redirect to new callback format
+        from app.tools.manga import manga_manhwaweb_top10_menu
+        
+        result = manga_manhwaweb_top10_menu()
+        result["_edit"] = True  # Forzar edicion en lugar de nuevo mensaje
+        return result
 
-        result = manga_top10_menu()
-        result["_edit"] = True  # Forzar edición en lugar de nuevo mensaje
+    if data == "manga:tp":
+        from app.tools.manga import manga_handle_top10
+        
+        result = manga_handle_top10("popular")
+        result["_edit"] = True  # Forzar edicion en lugar de nuevo mensaje
+        return result
+
+    if data == "manga:nr":
+        from app.tools.manga import manga_handle_top10
+        
+        result = manga_handle_top10("rated")
+        result["_edit"] = True  # Forzar edicion en lugar de nuevo mensaje
+        return result
+
+    if data in ("manga:nd", "manga:nw"):
+        from app.tools.manga import manga_handle_new
+        
+        result = manga_handle_new("week")
+        result["_edit"] = True  # Forzar edicion en lugar de nuevo mensaje
+        return result
+
+    if data == "manga:nm":
+        from app.tools.manga import manga_handle_new
+        
+        result = manga_handle_new("month")
+        result["_edit"] = True  # Forzar edicion en lugar de nuevo mensaje
+        return result
+
+    if data == "manga:top_rated":
+        from app.tools.manga import manga_handle_top10
+        
+        result = manga_handle_top10("rated")
+        result["_edit"] = True
+        return result
+
+    if data == "manga:top_newest":
+        from app.tools.manga import manga_handle_top10
+        
+        result = manga_handle_top10("newest")
+        result["_edit"] = True
+        return result
+
+    if data in ("manga:new", "manga:new_week"):
+        from app.tools.manga import manga_manhwaweb_new_menu
+        
+        result = manga_manhwaweb_new_menu()
+        result["_edit"] = True  # Forzar edicion en lugar de nuevo mensaje
+        return result
+
+    if data == "manga:new_month":
+        from app.tools.manga import manga_handle_new
+        
+        result = manga_handle_new("month")
+        result["_edit"] = True
         return result
 
     if data == "manga:tp":
@@ -649,9 +824,9 @@ def handle_callback(callback):
         return result
 
     if data == "manga:new":
-        from app.tools.manga import manga_new_menu, manga_handle_new
+        from app.tools.manga import manga_manhwaweb_new_menu
 
-        result = manga_new_menu()
+        result = manga_manhwaweb_new_menu()
         result["_edit"] = True  # Forzar edición en lugar de nuevo mensaje
         return result
 
@@ -802,7 +977,8 @@ def handle_callback(callback):
         token = data.split(":", 1)[1] if ":" in data else ""
         
         # Resolver el token a la URL real
-        resolved_url = _resolve_callback(token) or token
+        resolved_raw = _resolve_callback(token)
+        resolved_url = resolved_raw if isinstance(resolved_raw, str) else token
         
         # Determinar si es MangaDex, VerManhwa o Manhwaweb
         is_mangadex = False
@@ -894,7 +1070,7 @@ def handle_callback(callback):
             return mangadex_read_chapter(chapter_url, chat_id)
         elif is_vermanhwa:
             return vermanhwa_read_chapter(chapter_url, chat_id)
-        return manga_read_chapter(data, chat_id)
+        return manga_read_chapter(chapter_url, chat_id)
 
     if data.startswith("manga:fav:"):
         from app.tools.manga import manga_add_favorite, _resolve_callback
