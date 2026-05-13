@@ -35,6 +35,7 @@ from app.tools.manga.base import (
     _save_user_data,
     _register_callback,
     _register_menu_callback,
+    _store_menu_callback,
     _resolve_callback,
     _split_callback_ref,
     manga_resolve_menu,
@@ -132,19 +133,20 @@ def mangadex_read_details(manga_ref: str, chat_id: str = "") -> dict:
     
     # Acepta URL completa: "mangadex:manga:{id}" o token con back_ref
     manga_id_raw, back_ref = _split_callback_ref(manga_ref)
+    resolved_manga = _resolve_callback(manga_id_raw, "manga") or manga_id_raw
     
-    if not manga_id_raw.startswith("mangadex:manga:"):
+    if not isinstance(resolved_manga, str) or not resolved_manga.startswith("mangadex:manga:"):
         return {"type": "text", "text": "No pude cargar ese manga desde MangaDex."}
     
-    parts = manga_id_raw.split(":")
+    parts = resolved_manga.split(":")
     manga_id = parts[2] if len(parts) > 2 else ""
     
-    details = _mangadex._get_manga_by_url(manga_ref)
+    details = _mangadex._get_manga_by_url(resolved_manga)
     if not details:
         return {"type": "text", "text": "No pude cargar ese manga desde MangaDex."}
 
     if chat_id:
-        manga_add_history(chat_id, details["title"], manga_ref)
+        manga_add_history(chat_id, details["title"], resolved_manga)
 
     status = details.get("status") or ""
     status_emoji = _get_status_emoji(status)
@@ -178,18 +180,19 @@ def mangadex_read_details(manga_ref: str, chat_id: str = "") -> dict:
         ])
 
     buttons = []
-    manga_id_token = _register_callback("manga", manga_ref, title)
+    manga_id_token = _register_callback("manga", resolved_manga, title)
     detail_menu = {
         "type": "menu",
         "text": "\n".join(lines)[:MAX_MENU_TEXT_LENGTH],
         "buttons": buttons,
         "image": details.get("image"),
+        "_is_manga": True,
     }
     detail_ref = _register_menu_callback(detail_menu)
     
     # Quick actions for latest chapter
     if chapters_list:
-        latest_chap = chapters_list[-1]  # Last chapter (most recent since sorted desc)
+        latest_chap = chapters_list[0]
         chap_token = _register_callback("chapter", latest_chap.get("url", ""), "Ultimo cap")
         buttons.append([{"text": "\U0001f4d6 Leer ultimo cap", "callback_data": f"manga:chapter:{chap_token}:{detail_ref}"}])
         
@@ -292,15 +295,17 @@ def mangadex_read_chapter(chapter_ref: str, chat_id: str = "") -> dict:
     """Muestra opciones para un capitulo de MangaDex."""
     
     # Acepta URL completa: "mangadex:chapter:{chap_id}:{manga_id}"
-    if not isinstance(chapter_ref, str) or not chapter_ref.startswith("mangadex:chapter:"):
+    chapter_id_raw, back_ref = _split_callback_ref(chapter_ref)
+    resolved_chapter = _resolve_callback(chapter_id_raw, "chapter") or chapter_id_raw
+    if not isinstance(resolved_chapter, str) or not resolved_chapter.startswith("mangadex:chapter:"):
         return {"type": "text", "text": "No pude cargar ese capitulo desde MangaDex."}
 
-    parts = chapter_ref.split(":")
+    parts = resolved_chapter.split(":")
     chapter_id = parts[2] if len(parts) > 2 else ""
     
-    images = _mangadex._get_chapter_images(chapter_ref)
+    images = _mangadex._get_chapter_images(resolved_chapter)
 
-    chap_token = _register_callback("chapter", chapter_ref)
+    chap_token = _register_callback("chapter", resolved_chapter)
     
     mangadex_chap_url = f"https://mangadex.org/chapter/{chapter_id}"
     buttons = [[{"text": "🌐 Abrir en MangaDex", "url": mangadex_chap_url}]]
@@ -322,34 +327,37 @@ def mangadex_read_chapter(chapter_ref: str, chat_id: str = "") -> dict:
             ],
         ])
     
-    buttons.append([{"text": "⬅️ Volver", "callback_data": "manga:back"}])
+    _append_back_button(buttons, back_ref)
 
     text = f"📖 Capitulo (MangaDex)\n📄 {len(images)} paginas detectadas"
     if not images:
         text += "\n\n⚠️ No pude extraer paginas de MangaDex, pero puedes abrirlo en la web."
     
-    return {"type": "menu", "text": text, "buttons": buttons, "images": images[:3], "image": images[0] if images else None}
+    return {"type": "menu", "text": text, "buttons": buttons, "images": images[:3], "image": images[0] if images else None, "_is_manga": True}
 
 
 def mangadex_menu() -> dict:
     back_ref = _register_menu_callback(manga_menu(""))
     return {
         "type": "menu",
-        "text": "\U0001f310 MANGADEX\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nBuscador global de manga sin API key.",
+        "text": "\U0001f310 MANGADEX\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nCatalogo global con portadas, lectura por paginas y apertura web.",
         "buttons": [
             [{"text": "\U0001f50d Buscar manga", "callback_data": "manga:mangadex_search"}],
-            [{"text": "\U0001f4c8 Top 10 Popular", "callback_data": "manga:mangadex_top"}],
-            [{"text": "\u2b50 Recientes", "callback_data": "manga:mangadex_recent"}],
+            [{"text": "\U0001f525 Populares", "callback_data": "manga:mangadex_top_popular"}],
+            [{"text": "\u2728 Ultimos agregados", "callback_data": "manga:mangadex_recent"}],
             [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
         ],
+        "_is_manga": True,
     }
 
 
 def mangadex_search_menu() -> dict:
+    back_ref = _register_menu_callback(mangadex_menu())
     return {
         "type": "menu",
         "text": "\U0001f50d MANGADEX - BUSQUEDA\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nEscribe el nombre del manga que buscas.",
-        "buttons": [[{"text": "Cancelar", "callback_data": "manga:back"}]],
+        "buttons": [[{"text": "Cancelar", "callback_data": f"manga:back:{back_ref}"}]],
+        "_is_manga": True,
     }
 
 
@@ -357,12 +365,13 @@ def mangadex_top_menu() -> dict:
     back_ref = _register_menu_callback(mangadex_menu())
     return {
         "type": "menu",
-        "text": "\U0001f3c6 TOP 10 - MANGADEX\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige el criterio.",
+        "text": "\U0001f3c6 MANGADEX - LISTADOS\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nElige el listado que quieres abrir.",
         "buttons": [
             [{"text": "\U0001f525 Popularidad", "callback_data": "manga:mangadex_top_popular"}],
-            [{"text": "\u2b50 Recientes", "callback_data": "manga:mangadex_recent"}],
+            [{"text": "\u2728 Ultimos agregados", "callback_data": "manga:mangadex_recent"}],
             [{"text": "\u2b07\ufe0f Volver", "callback_data": f"manga:back:{back_ref}"}],
         ],
+        "_is_manga": True,
     }
 
 

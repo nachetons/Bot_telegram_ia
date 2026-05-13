@@ -1053,6 +1053,7 @@ def handle_callback(callback):
         # Formato: manga:chapter:{token}:{detail_ref}
         parts = data.split(":")
         token = parts[2] if len(parts) > 2 else ""
+        back_ref = parts[3] if len(parts) > 3 else ""
         
         chapter_url = _resolve_callback(token) or token
         
@@ -1067,7 +1068,8 @@ def handle_callback(callback):
                 is_vermanhwa = True
         
         if is_mangadex:
-            return mangadex_read_chapter(chapter_url, chat_id)
+            chapter_ref = f"{chapter_url}:{back_ref}" if back_ref else chapter_url
+            return mangadex_read_chapter(chapter_ref, chat_id)
         elif is_vermanhwa:
             return vermanhwa_read_chapter(chapter_url, chat_id)
         return manga_read_chapter(chapter_url, chat_id)
@@ -1098,6 +1100,7 @@ def handle_callback(callback):
         # El callback_data es: manga:read:{token}:{back_ref}
         parts = data.split(":")
         token = parts[2] if len(parts) > 2 else ""
+        back_ref = parts[3] if len(parts) > 3 else ""
         
         resolved_url = _resolve_callback(token) or token
         
@@ -1112,7 +1115,8 @@ def handle_callback(callback):
                 is_vermanhwa = True
         
         if is_mangadex:
-            result = mangadex_read_details(resolved_url, chat_id)
+            manga_ref = f"{resolved_url}:{back_ref}" if back_ref else resolved_url
+            result = mangadex_read_details(manga_ref, chat_id)
         elif is_vermanhwa:
             result = vermanhwa_read_details(resolved_url, chat_id)
         else:
@@ -1261,7 +1265,7 @@ def handle_callback(callback):
         results = menu_data.get("results", [])
         title = menu_data.get("text", "").split("\n")[0] if menu_data.get("text") else "Resultados"
         
-        result = _results_menu(title, results, "Sin resultados.", back_ref, page=page)
+        result = _results_menu(title, results, "Sin resultados.", menu_data.get("back_ref", ""), page=page)
         result["_edit"] = True
         return result
 

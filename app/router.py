@@ -554,7 +554,16 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
                     result = "⛔ Funcionalidad manga restringida por ahora."
                     sources = []
                 else:
-                    from app.tools.manga import manga_read, manga_auto_search, mangadex_search, vermanhwa_search, vermanhwa_auto_search
+                    from app.tools.manga import (
+                        manga_read,
+                        manga_auto_search,
+                        mangadex_search,
+                        mangadex_menu,
+                        vermanhwa_search,
+                        vermanhwa_auto_search,
+                        _results_menu,
+                        _register_menu_callback,
+                    )
 
                     query = text.strip()
 
@@ -567,9 +576,21 @@ def _process_locked(text, chat_id, placeholder_message_id=None, source_message_i
                     elif pending_intent == "manga_search":
                         result = manga_read(query, "")
                     elif pending_intent == "mangadex":
-                        result = mangadex_search(query)
+                        search_result = mangadex_search(query)
+                        result = _results_menu(
+                            f"MANGADEX - Resultados para: {query}",
+                            search_result.get("results", []),
+                            f"No encontre mangas en MangaDex para '{query}'.",
+                            _register_menu_callback(mangadex_menu()),
+                        )
                     elif pending_intent == "mangadex_search":
-                        result = mangadex_search(query)
+                        search_result = mangadex_search(query)
+                        result = _results_menu(
+                            f"MANGADEX - Resultados para: {query}",
+                            search_result.get("results", []),
+                            f"No encontre mangas en MangaDex para '{query}'.",
+                            _register_menu_callback(mangadex_menu()),
+                        )
                     elif pending_intent == "manga_vermanhwa":
                         result = vermanhwa_search(query)
                     elif pending_intent == "manga_vermanhwa_search":
@@ -2178,7 +2199,8 @@ async def webhook(req: Request):
                 send_message_with_buttons(
                     chat_id,
                     menu_text[:1024],
-                    menu_buttons
+                    menu_buttons,
+                    manga_menu=is_manga_menu
                 )
             elif menu_image:
                 if _callback_message_has_media(callback_message):

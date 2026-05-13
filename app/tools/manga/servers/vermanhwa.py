@@ -1,8 +1,9 @@
 import json
 import logging
 import re
+from html import unescape
 from typing import List, Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 
@@ -13,6 +14,80 @@ logger = logging.getLogger("manga_tool")
 # Server-specific configuration
 BASE_URL = "https://vermanhwa.com"
 CDN_BASE = "https://cdn4.vermanhwa.com"
+PLACEHOLDER_IMAGE_MARKERS = ("dflazy", "placeholder", "blank.", "loading", "logo")
+
+
+def _absolute_url(url: str) -> str:
+    if not url:
+        return ""
+    return urljoin(BASE_URL, unescape(url.strip()))
+
+
+def _clean_text(value: str) -> str:
+    value = re.sub(r"<script\b.*?</script>", " ", value or "", flags=re.DOTALL | re.IGNORECASE)
+    value = re.sub(r"<style\b.*?</style>", " ", value, flags=re.DOTALL | re.IGNORECASE)
+    value = re.sub(r"<[^>]+>", " ", value)
+    return re.sub(r"\s+", " ", unescape(value)).strip()
+
+
+def _is_placeholder_image(url: str) -> bool:
+    lowered = (url or "").lower()
+    return not lowered or any(marker in lowered for marker in PLACEHOLDER_IMAGE_MARKERS)
+
+
+def _image_candidates(html: str) -> List[str]:
+    candidates = []
+
+    for img_tag in re.findall(r"<img\b[^>]*>", html or "", re.DOTALL | re.IGNORECASE):
+        srcset_match = re.search(r"(?:data-srcset|srcset)=['\"]([^'\"]+)['\"]", img_tag, re.IGNORECASE)
+        if srcset_match:
+            for src_part in srcset_match.group(1).split(","):
+                candidates.append(src_part.strip().split(" ")[0])
+
+        for attr in ("data-src", "data-lazy-src", "data-original", "data-cfsrc", "src"):
+            match = re.search(rf"{attr}=['\"]([^'\"]+)['\"]", img_tag, re.IGNORECASE)
+            if match:
+                candidates.append(match.group(1))
+
+    candidates.extend(
+        re.findall(
+            r'(?:og:image|twitter:image)["\'][^>]*content=["\']([^"\']+)["\']',
+            html or "",
+            re.IGNORECASE,
+        )
+    )
+    candidates.extend(
+        re.findall(
+            r'(https?://[^"\'>\s]+\.(?:jpg|jpeg|png|webp)(?:\?[^"\'>\s]*)?)',
+            html or "",
+            re.IGNORECASE,
+        )
+    )
+
+    seen = set()
+    clean_urls = []
+    for candidate in candidates:
+        url = _absolute_url(candidate).strip()
+        lowered = url.lower()
+        if (
+            url
+            and url not in seen
+            and not _is_placeholder_image(url)
+            and any(ext in lowered for ext in (".jpg", ".jpeg", ".png", ".webp"))
+        ):
+            seen.add(url)
+            clean_urls.append(url)
+
+    return clean_urls
+
+
+def _first_image(html: str) -> str:
+    images = _image_candidates(html)
+    return images[0] if images else ""
+
+
+def _title_from_slug(slug: str) -> str:
+    return " ".join(part.capitalize() for part in slug.replace("-", " ").split())
 
 
 def _slug_from_url(manga_url: str) -> str:
@@ -58,9 +133,42 @@ def _search_manga(query: str, limit: int = 20) -> List[dict]:
     results = []
     
     try:
+        ajax_response = requests.post(
+            f"{BASE_URL}/wp-admin/admin-ajax.php",
+            data={"action": "wp-manga-search-manga", "title": query},
+            headers=base._get_headers(),
+            timeout=20,
+        )
+        if "application/json" in (ajax_response.headers.get("content-type") or ""):
+            payload = ajax_response.json()
+            ajax_items = payload.get("data") if payload.get("success") else []
+            for item in ajax_items or []:
+                url = item.get("url") or ""
+                slug = _slug_from_url(url)
+                if not slug:
+                    continue
+
+                detail = _get_manga_by_url(_manga_url(slug))
+                results.append({
+                    "title": (detail or {}).get("title") or item.get("title") or _title_from_slug(slug),
+                    "url": _manga_url(slug),
+                    "image": (detail or {}).get("image") or "",
+                    "type": (detail or {}).get("type") or item.get("type") or "manhwa",
+                    "status": (detail or {}).get("status") or "",
+                    "chapters_count": len((detail or {}).get("chapters") or []),
+                })
+
+                if len(results) >= limit:
+                    return results
+
+            if payload.get("success") is False:
+                return results
+
         search_url = f"{BASE_URL}/?s={query}"
         response = requests.get(search_url, headers=base._get_headers(), timeout=20)
         response.raise_for_status()
+        if response.url.rstrip("/") == BASE_URL:
+            return results
         
         # Extract manga links from search results
         manga_links = re.findall(
@@ -77,6 +185,9 @@ def _search_manga(query: str, limit: int = 20) -> List[dict]:
             slug = _slug_from_url(link)
             if slug and slug not in seen_slugs:
                 seen_slugs.add(slug)
+
+                link_pos = response.text.find(link)
+                chunk = response.text[max(0, link_pos - 2500): link_pos + 4500] if link_pos >= 0 else response.text
                 
                 # Extract title from the link text or alt attribute
                 title_match = re.search(
@@ -87,17 +198,25 @@ def _search_manga(query: str, limit: int = 20) -> List[dict]:
                 title = "Sin titulo"
                 if title_match:
                     title_text = title_match.group(1)
-                    title = re.sub(r'<[^>]+>', '', title_text).strip() or "Sin titulo"
+                    title = _clean_text(title_text) or "Sin titulo"
+
+                if title == "Sin titulo":
+                    attr_title = re.search(r'(?:alt|title)=["\']([^"\']+)["\']', chunk, re.IGNORECASE)
+                    if attr_title:
+                        title = _clean_text(attr_title.group(1)) or title
                 
-                # Extract image from thumbnail or data-src
-                img_match = re.search(
-                    rf'<a[^>]*href=["\']{re.escape(link)}["\'][^>]*>.*?<img[^>]*src=["\']([^"\']+)["\']',
-                    response.text,
-                    re.DOTALL | re.IGNORECASE
-                )
-                image = ""
-                if img_match:
-                    image = img_match.group(1)
+                image = _first_image(chunk)
+
+                if title == "Sin titulo":
+                    title = _title_from_slug(slug)
+
+                # The search page often ships lazy placeholders. For the first
+                # visible results, visit the detail page to recover the real cover.
+                if (not image or _is_placeholder_image(image)) and len(results) < min(limit, 8):
+                    detail = _get_manga_by_url(_manga_url(slug))
+                    if detail:
+                        image = detail.get("image") or image
+                        title = detail.get("title") or title
                 
                 results.append({
                     "title": title,
@@ -173,6 +292,11 @@ def _parse_manga_details(html: str, slug: str) -> dict:
     
     # Fallback to page title
     if title == "Sin titulo":
+        h1_match = re.search(r'<h1[^>]*>(.*?)</h1>', html, re.DOTALL | re.IGNORECASE)
+        if h1_match:
+            title = _clean_text(h1_match.group(1)) or title
+
+    if title == "Sin titulo":
         title_match = re.search(r'<title>(.*?)</title>', html)
         if title_match:
             title = title_match.group(1).split(' - ')[0].strip() or title
@@ -202,6 +326,20 @@ def _parse_manga_details(html: str, slug: str) -> dict:
                         break
         except Exception:
             pass
+
+    if not image or _is_placeholder_image(image):
+        meta_match = re.search(
+            r'(?:og:image|twitter:image)["\'][^>]*content=["\']([^"\']+)["\']',
+            html,
+            re.IGNORECASE,
+        )
+        if meta_match:
+            image = meta_match.group(1)
+
+    if not image or _is_placeholder_image(image):
+        image = _first_image(html)
+
+    image = _absolute_url(image)
     
     # Extract chapters from the chapter list
     chapters = []
@@ -256,14 +394,24 @@ def _get_chapter_images(chapter_url: str) -> List[str]:
         response = requests.get(chapter_url, headers=base._get_headers(), timeout=20)
         response.raise_for_status()
         
-        # Extract image URLs from the chapter page
-        img_urls = re.findall(
-            r'<img[^>]*src=["\']([^"\']+)',
-            response.text
-        )
-        
-        # Filter for CDN images (vermanhwa chapter images), strip whitespace
-        chapter_images = [u.strip() for u in img_urls if 'cdn' in u and ('.jpg' in u or '.png' in u or '.webp' in u)]
+        # Extract image URLs from lazy-loaded readers and inline scripts.
+        img_urls = _image_candidates(response.text)
+
+        # Filter for actual reader pages, strip whitespace and deduplicate.
+        chapter_images = []
+        seen = set()
+        for raw_url in img_urls:
+            url = _absolute_url(raw_url).strip()
+            lowered = url.lower()
+            if (
+                url
+                and url not in seen
+                and ("cdn" in lowered or "vermanhwa" in lowered)
+                and any(ext in lowered for ext in (".jpg", ".jpeg", ".png", ".webp"))
+                and not any(skip in lowered for skip in ("icon", "button", "ad", "banner", "logo", "avatar"))
+            ):
+                seen.add(url)
+                chapter_images.append(url)
         
         logger.info(f"_get_chapter_images: Found {len(chapter_images)} images for {chapter_url}")
         

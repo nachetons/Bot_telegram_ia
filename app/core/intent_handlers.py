@@ -404,14 +404,20 @@ class MangaDexIntentHandler:
             return True, "⛔ Funcionalidad manga restringida por ahora.", []
         
         from app.core.chat_state import set_pending_followup
-        from app.tools.manga import mangadex_search, mangadex_menu
+        from app.tools.manga import mangadex_search, mangadex_menu, _results_menu, _register_menu_callback
         
         if not query.strip():
             result = mangadex_menu()
             result["_edit"] = True
             return True, result, ["manga_tool"]
         
-        result = mangadex_search(query)
+        search_result = mangadex_search(query)
+        result = _results_menu(
+            f"MANGADEX - Resultados para: {query}",
+            search_result.get("results", []),
+            f"No encontre mangas en MangaDex para '{query}'.",
+            _register_menu_callback(mangadex_menu()),
+        )
         return True, result, ["manga_tool"]
 
 

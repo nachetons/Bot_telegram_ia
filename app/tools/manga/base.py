@@ -153,6 +153,8 @@ def _resolve_callback(value: str, expected_kind: str = "") -> Optional[str]:
     """Resuelve un callback token a su URL original."""
     if value.startswith("http://") or value.startswith("https://"):
         return value
+    if value.startswith("mangadex:manga:") or value.startswith("mangadex:chapter:"):
+        return value
     
     item = _callback_store().get(value) or {}
     if isinstance(item, dict):
@@ -166,6 +168,16 @@ def _resolve_callback(value: str, expected_kind: str = "") -> Optional[str]:
 
 def _split_callback_ref(value: str) -> tuple[str, str]:
     if value.startswith("http://") or value.startswith("https://"):
+        return value, ""
+    if value.startswith("mangadex:manga:"):
+        parts = value.split(":")
+        if len(parts) >= 4:
+            return ":".join(parts[:3]), parts[3]
+        return value, ""
+    if value.startswith("mangadex:chapter:"):
+        parts = value.split(":")
+        if len(parts) >= 5:
+            return ":".join(parts[:4]), parts[4]
         return value, ""
     parts = (value or "").split(":", 1)
     item_ref = parts[0]
@@ -260,12 +272,24 @@ def _results_menu(title: str, results: List[dict], empty_text: str, back_ref: st
         if img and ("http" in img or "https" in img):
             gallery_images.append(img)
 
-    # Clean caption - just title + pagination info, NO list of titles
     lines = [title]
     if total_pages > 1:
         lines.append(f"\U0001f4c4 Pagina {page + 1}/{total_pages}")
     lines.append("")
     lines.append(f"{len(page_results)} resultados")
+    lines.append("")
+    for i, manga in enumerate(page_results):
+        global_idx = start_idx + i + 1
+        manga_title = _short(manga.get("title", "Sin titulo"), 44)
+        status = manga.get("status") or manga.get("type") or ""
+        chapters = manga.get("chapters_count")
+        meta = []
+        if status:
+            meta.append(str(status))
+        if chapters:
+            meta.append(f"{chapters} caps")
+        suffix = f" - {' / '.join(meta)}" if meta else ""
+        lines.append(f"{global_idx}. {manga_title}{suffix}")
     
     # Build simple numbered buttons with fav - compact single column
     buttons = []
@@ -275,7 +299,7 @@ def _results_menu(title: str, results: List[dict], empty_text: str, back_ref: st
         manga_title = _short(manga.get("title", "Sin titulo"), 25)
         
         read_id = _register_callback("manga", manga_url, manga_title)
-        buttons.append([{"text": str(global_idx), "callback_data": f"read:{read_id}"}])
+        buttons.append([{"text": f"{global_idx}. {manga_title}", "callback_data": f"manga:read:{read_id}"}])
 
     # Pagination at top (single row)
     if total_pages > 1:
@@ -298,7 +322,19 @@ def _results_menu(title: str, results: List[dict], empty_text: str, back_ref: st
         "images": gallery_images,
         "total_pages": total_pages,
         "current_page": page,
+        "back_ref": back_ref,
+        "_is_manga": True,
     }
+    menu_ref = _register_menu_callback(menu)
+    for row in menu["buttons"]:
+        for button in row:
+            callback_data = button.get("callback_data", "")
+            if callback_data.startswith("manga:read:") and callback_data.count(":") == 2:
+                button["callback_data"] = f"{callback_data}:{menu_ref}"
+            elif callback_data.startswith("manga:page:") and callback_data.count(":") >= 3:
+                parts = callback_data.split(":")
+                button["callback_data"] = f"manga:page:{menu_ref}:{parts[-1]}"
+    _store_menu_callback(menu_ref, menu)
     return menu
 
 
@@ -337,12 +373,24 @@ def _compact_results_menu(title: str, results: List[dict], empty_text: str, back
         if img and ("http" in img or "https" in img):
             gallery_images.append(img)
     
-    # Clean caption - just title + pagination info, NO list of titles
     lines = [title]
     if total_pages > 1:
         lines.append(f"\U0001f4c4 Pagina {page + 1}/{total_pages}")
     lines.append("")
     lines.append(f"{len(page_results)} resultados")
+    lines.append("")
+    for i, manga in enumerate(page_results):
+        global_idx = start_idx + i + 1
+        manga_title = _short(manga.get("title", "Sin titulo"), 44)
+        status = manga.get("status") or manga.get("type") or ""
+        chapters = manga.get("chapters_count")
+        meta = []
+        if status:
+            meta.append(str(status))
+        if chapters:
+            meta.append(f"{chapters} caps")
+        suffix = f" - {' / '.join(meta)}" if meta else ""
+        lines.append(f"{global_idx}. {manga_title}{suffix}")
     
     # Build simple numbered buttons - compact, no extra text
     buttons = []
@@ -352,7 +400,7 @@ def _compact_results_menu(title: str, results: List[dict], empty_text: str, back
         manga_title = _short(manga.get("title", "Sin titulo"), 25)
         
         read_id = _register_callback("manga", manga_url, manga_title)
-        buttons.append([{"text": str(global_idx), "callback_data": f"read:{read_id}"}])
+        buttons.append([{"text": f"{global_idx}. {manga_title}", "callback_data": f"manga:read:{read_id}"}])
 
     # Pagination at top (single row)
     if total_pages > 1:
@@ -375,5 +423,17 @@ def _compact_results_menu(title: str, results: List[dict], empty_text: str, back
         "images": gallery_images,
         "total_pages": total_pages,
         "current_page": page,
+        "back_ref": back_ref,
+        "_is_manga": True,
     }
+    menu_ref = _register_menu_callback(menu)
+    for row in menu["buttons"]:
+        for button in row:
+            callback_data = button.get("callback_data", "")
+            if callback_data.startswith("manga:read:") and callback_data.count(":") == 2:
+                button["callback_data"] = f"{callback_data}:{menu_ref}"
+            elif callback_data.startswith("manga:page:") and callback_data.count(":") >= 3:
+                parts = callback_data.split(":")
+                button["callback_data"] = f"manga:page:{menu_ref}:{parts[-1]}"
+    _store_menu_callback(menu_ref, menu)
     return menu
