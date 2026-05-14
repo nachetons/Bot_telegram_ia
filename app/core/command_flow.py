@@ -6,6 +6,7 @@ from app.core.chat_state import (
     clear_pending_followup,
     clear_prediction_session,
     clear_recipe_session,
+    clear_reminder_session,
     clear_wallapop_result_session,
     set_prediction_session,
     set_pending_followup,
@@ -34,6 +35,7 @@ from app.utils.prediction_ui import (
     rival_analysis_menu
 )
 from app.utils.recipe_ui import recipe_menu, recipe_history_menu
+from app.utils.reminder_ui import reminder_main_menu
 from app.tools.manga import manga_menu, manga_search, manga_read, manga_auto_search, manga_get_history, manga_get_favorites, manga_download
 from app.core.command_registry import command_registry
 
@@ -306,6 +308,13 @@ def _handle_manga(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
     return True, manga_auto_search(chat_id, query), ["manga_tool"]
 
 
+def _handle_recordatorio(text: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+    """Handler para /recordatorio y /recordatorios."""
+    clear_pending_followup(chat_id)
+    clear_reminder_session(chat_id)
+    return True, reminder_main_menu(), ["reminder_tool"]
+
+
 # Registrar comandos
 def _initialize_commands():
     """Inicializa el registro de comandos."""
@@ -336,6 +345,8 @@ def _initialize_commands():
     command_registry.register("/mis_recetas", _handle_mis_recetas)
     command_registry.register("/clear_recipes", _handle_clear_recipes)
     command_registry.register("/manga", _handle_manga)
+    command_registry.register("/recordatorio", _handle_recordatorio)
+    command_registry.register("/recordatorios", _handle_recordatorio)
 
 
 _initialize_commands()

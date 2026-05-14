@@ -347,6 +347,28 @@ class ChatStateManager:
             finally:
                 self.sessions[chat_id]["manga_menu_messages"] = []
 
+    # ========== REMINDER SESSIONS ==========
+    def set_reminder_session(self, chat_id: int, payload: Any) -> None:
+        """Establece sesión de recordatorio."""
+        lock = self._get_lock(chat_id)
+        with lock:
+            if chat_id not in self.sessions:
+                self.sessions[chat_id] = {}
+            self.sessions[chat_id]["reminder"] = payload
+
+    def get_reminder_session(self, chat_id: int) -> Optional[Any]:
+        """Obtiene sesión de recordatorio."""
+        lock = self._get_lock(chat_id)
+        with lock:
+            return self.sessions.get(chat_id, {}).get("reminder")
+
+    def clear_reminder_session(self, chat_id: int) -> None:
+        """Limpia sesión de recordatorio."""
+        lock = self._get_lock(chat_id)
+        with lock:
+            if "reminder" in self.sessions.get(chat_id, {}):
+                del self.sessions[chat_id]["reminder"]
+
     # ========== UTILITIES ==========
     def _get_lock(self, chat_id: int) -> threading.Lock:
         """Obtiene o crea un lock para el chat_id."""
@@ -374,6 +396,7 @@ class ChatStateManager:
         self.clear_prediction_session(chat_id)
         self.clear_recipe_session(chat_id)
         self.clear_manga_menu_message(chat_id)
+        self.clear_reminder_session(chat_id)
 
     def set_last_message_id(self, chat_id: int, message_id: int) -> None:
         """Guarda el ID del último mensaje enviado."""
@@ -392,4 +415,3 @@ class ChatStateManager:
 
 # Instancia global para compatibilidad con código existente
 state_manager = ChatStateManager()
-

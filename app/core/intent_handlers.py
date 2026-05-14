@@ -445,6 +445,51 @@ class MangaVerManhwaIntentHandler:
         return True, result, ["manga_tool"]
 
 
+class ReminderIntentHandler:
+    """Handler para el intent 'reminder' (flujo guiado de recordatorios)."""
+
+    def get_intent_name(self) -> str:
+        return "reminder"
+
+    def handle(self, query: str, chat_id: int) -> Tuple[bool, Any, List[str]]:
+        from app.core.chat_state import get_reminder_session, clear_pending_followup, clear_reminder_session, set_reminder_session
+        from app.utils.reminder_ui import reminder_create_step2, reminder_main_menu, reminder_created_menu
+
+        session = get_reminder_session(chat_id) or {}
+        step = session.get("step", "")
+
+        if not query.strip():
+            return True, "Por favor escribe algo para continuar con el recordatorio.", []
+
+        # Paso 1: Esperando descripción de la tarea
+        if step == "await_task":
+            task = query.strip()
+            clear_pending_followup(chat_id)
+            set_reminder_session(chat_id, {"step": "await_date", "task": task})
+            return True, reminder_create_step2(task), ["reminder_tool"]
+
+        # Paso 2: Esperando fecha manual (YYYY-MM-DD)
+        if step == "await_date_manual":
+            from app.tools.reminders import add_reminder
+
+            date_str = query.strip()
+            clear_pending_followup(chat_id)
+            clear_reminder_session(chat_id)
+
+            task = session.get("task", "")
+            result = add_reminder(chat_id, task, date_str)
+
+            if result["ok"]:
+                return True, reminder_created_menu(result), ["reminder_tool"]
+            else:
+                return True, {"type": "text", "text": f"No pude crear el recordatorio: {result['message']}", "_edit": True}, []
+
+        # Si no hay paso activo, mostrar menú principal
+        clear_pending_followup(chat_id)
+        clear_reminder_session(chat_id)
+        return True, reminder_main_menu(), ["reminder_tool"]
+
+
 # Registrar todos los handlers
 def _initialize_handlers():
     """Inicializa el dispatcher con todos los handlers."""
@@ -473,6 +518,7 @@ def _initialize_handlers():
     intent_dispatcher.register(MangaManhwaIntentHandler())
     intent_dispatcher.register(MangaDexIntentHandler())
     intent_dispatcher.register(MangaVerManhwaIntentHandler())
+    intent_dispatcher.register(ReminderIntentHandler())
 
 
 _initialize_handlers()

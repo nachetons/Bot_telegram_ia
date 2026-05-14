@@ -413,7 +413,7 @@ def _needs_placeholder(text):
     if not normalized:
         return False
 
-    incomplete_commands = ["/start", "/helper", "/library", "/menu", "/catalog", "/wiki", "/img", "/image", "/video", "/tiempo", "/weather", "/youtube", "/music", "/playlist", "/translate", "/wallapop", "/mis_alertas", "/prediccion", "/prediction", "/mis_predicciones"]
+    incomplete_commands = ["/start", "/helper", "/library", "/menu", "/catalog", "/wiki", "/img", "/image", "/video", "/tiempo", "/weather", "/youtube", "/music", "/playlist", "/translate", "/wallapop", "/mis_alertas", "/prediccion", "/prediction", "/mis_predicciones", "/recordatorio", "/recordatorios"]
     return normalized not in incomplete_commands
 
 

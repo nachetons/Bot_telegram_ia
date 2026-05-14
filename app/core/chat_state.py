@@ -53,6 +53,11 @@ set_wallapop_alert_session = manager.set_wallapop_alert_session
 get_wallapop_alert_session = manager.get_wallapop_alert_session
 clear_wallapop_alert_session = manager.clear_wallapop_alert_session
 
+# Reminder Sessions
+set_reminder_session = manager.set_reminder_session
+get_reminder_session = manager.get_reminder_session
+clear_reminder_session = manager.clear_reminder_session
+
 # Jellyfin Item Messages
 set_jellyfin_item_message = manager.set_jellyfin_item_message
 get_jellyfin_item_message = manager.get_jellyfin_item_message

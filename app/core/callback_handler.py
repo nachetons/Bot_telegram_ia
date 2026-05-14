@@ -1353,4 +1353,101 @@ def handle_callback(callback):
         result["_edit"] = True
         return result
 
+    # ========== REMINDER CALLBACKS ==========
+    if data == "reminder:create":
+        from app.core.chat_state import set_pending_followup, set_reminder_session
+        from app.utils.reminder_ui import reminder_create_step1
+
+        set_pending_followup(chat_id, "reminder")
+        set_reminder_session(chat_id, {"step": "await_task"})
+        return reminder_create_step1()
+
+    if data == "reminder:list":
+        from app.tools.reminders import list_reminders
+        from app.utils.reminder_ui import reminder_list_menu
+
+        reminders = list_reminders(chat_id)
+        result = reminder_list_menu(reminders)
+        result["_edit"] = True
+        return result
+
+    if data == "reminder:delete_menu":
+        from app.tools.reminders import list_reminders
+        from app.utils.reminder_ui import reminder_delete_menu
+
+        reminders = [r for r in list_reminders(chat_id) if not r.get("completed")]
+        result = reminder_delete_menu(reminders)
+        result["_edit"] = True
+        return result
+
+    if data == "reminder:date_manual":
+        from app.core.chat_state import get_reminder_session, set_pending_followup, set_reminder_session
+        from app.utils.reminder_ui import reminder_create_manual_date
+
+        session = get_reminder_session(chat_id) or {}
+        task = session.get("task", "")
+        set_pending_followup(chat_id, "reminder")
+        set_reminder_session(chat_id, {"step": "await_date_manual", "task": task})
+        return reminder_create_manual_date()
+
+    # Date selection: reminder:date:YYYY-MM-DD
+    if data.startswith("reminder:date:"):
+        from app.core.chat_state import get_reminder_session, clear_pending_followup, clear_reminder_session
+        from app.tools.reminders import add_reminder
+        from app.utils.reminder_ui import reminder_created_menu
+
+        session = get_reminder_session(chat_id)
+        task = session.get("task", "") if session else ""
+        target_date_str = data.split(":", 2)[2] if ":" in data else ""
+
+        clear_pending_followup(chat_id)
+        clear_reminder_session(chat_id)
+
+        result = add_reminder(chat_id, task, target_date_str)
+        if result["ok"]:
+            return reminder_created_menu(result)
+        return {"type": "text", "text": f"No pude crear el recordatorio: {result['message']}", "_edit": True}
+
+    if data.startswith("reminder:complete:"):
+        from app.core.chat_state import clear_pending_followup, clear_reminder_session
+        from app.tools.reminders import complete_reminder, list_reminders
+        from app.utils.reminder_ui import reminder_list_menu
+
+        reminder_id = data.split(":", 2)[2] if ":" in data else ""
+        action_result = complete_reminder(chat_id, reminder_id)
+        clear_pending_followup(chat_id)
+        clear_reminder_session(chat_id)
+
+        reminders = list_reminders(chat_id)
+        result = reminder_list_menu(reminders)
+        if not action_result.get("ok"):
+            result["text"] = f"{action_result['message']}\n\n{result.get('text', '')}"
+        result["_edit"] = True
+        return result
+
+    if data.startswith("reminder:delete:"):
+        from app.core.chat_state import clear_pending_followup, clear_reminder_session
+        from app.tools.reminders import delete_reminder, list_reminders
+        from app.utils.reminder_ui import reminder_delete_menu
+
+        reminder_id = data.split(":", 2)[2] if ":" in data else ""
+        action_result = delete_reminder(chat_id, reminder_id)
+        clear_pending_followup(chat_id)
+        clear_reminder_session(chat_id)
+
+        reminders = [r for r in list_reminders(chat_id) if not r.get("completed")]
+        result2 = reminder_delete_menu(reminders)
+        if not action_result.get("ok"):
+            result2["text"] = f"{action_result['message']}\n\n{result2.get('text', '')}"
+        result2["_edit"] = True
+        return result2
+
+    if data == "reminder:back":
+        from app.core.chat_state import clear_pending_followup, clear_reminder_session
+        from app.utils.reminder_ui import reminder_main_menu
+
+        clear_pending_followup(chat_id)
+        clear_reminder_session(chat_id)
+        return reminder_main_menu()
+
     return None
